@@ -46,9 +46,15 @@ Return ONLY a JSON object — no prose, no markdown fences — with these keys:
   "case_for":     one sentence, strongest reason he clears the threshold
   "case_against": one sentence, strongest reason he falls short
   "p_exceed":     number 0..1, probability he scores AT OR ABOVE the threshold
-  "floor":        number, ~10th percentile fantasy points
-  "median":       number, ~50th percentile fantasy points
-  "ceiling":      number, ~90th percentile fantasy points
+  "floor":        number, a realistic BAD game (~10th percentile outcome)
+  "median":       number, the expected/typical outcome (~50th percentile)
+  "ceiling":      number, a realistic BOOM game (~90th percentile outcome)
+
+Fantasy scoring has a fat upper tail: high-usage skill players routinely double
+their median in a boom week, and busts fall well below recent form. Make the
+floor-to-ceiling range WIDE enough to reflect real week-to-week variance — a
+narrow band around the median is almost always wrong. For a high-target WR or a
+featured RB, the ceiling should be roughly twice the floor.
 
 Calibration matters. p_exceed = 0.7 means that across many similar spots the
 player clears the bar about 7 times in 10. Do not default to 0 or 1 — reflect
@@ -170,6 +176,7 @@ class LLMDebatePredictor:
         try:
             data = _parse_json(raw)
         except (json.JSONDecodeError, ValueError):
+            # A malformed response becomes a maximally-uncertain sit, not a crash.
             data = {"p_exceed": 0.5, "median": start_threshold}
         return self._to_verdict(data, start_threshold)
 
