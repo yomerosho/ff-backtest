@@ -1,4 +1,3 @@
 pandas>=2.0
 numpy>=1.24
-matplotlib>=3.7   ; optional, only used for the calibration plot
-nfl_data_py>=0.3  ; optional, only needed for real (non-demo) data
+matplotlib>=3.7
