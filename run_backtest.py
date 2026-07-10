@@ -1,10 +1,13 @@
 """Run a walk-forward backtest and print an accuracy + calibration report.
 
-Demo (no network, synthetic data):
+Demo (no network, no API key, synthetic data):
     python run_backtest.py --demo
 
-Real data (needs `nfl_data_py`; uses history, tests on a held-out season):
-    python run_backtest.py --history 2023 2024 --test-season 2025
+Real LLM predictor on synthetic data (needs ANTHROPIC_API_KEY; start small):
+    python run_backtest.py --demo --live-llm --limit 5 --weeks 5 6
+
+Real LLM predictor on real data (also needs nfl_data_py):
+    python run_backtest.py --live-llm --history 2023 2024 --test-season 2025 --limit 10
 
 The design mirrors the plan: restrict information to before the test season's
 games, replay week by week, then score against what actually happened.
@@ -12,6 +15,8 @@ games, replay week by week, then score against what actually happened.
 from __future__ import annotations
 
 import argparse
+import os
+import sys
 
 from data import PointInTimeStore
 from backtest import Backtester, BaselinePredictor, MockDebatePredictor
@@ -66,19 +71,35 @@ def maybe_plot(records, path: str) -> None:
     print(f"\nSaved calibration plot -> {path}")
 
 
+def build_system(args):
+    """Pick the predictor under test: the real LLM moderator or the mock."""
+    if args.live_llm:
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            sys.exit("ERROR: --live-llm needs ANTHROPIC_API_KEY set in the environment.")
+        from llm_predictor import LLMDebatePredictor
+        print(f"[live-llm] model={args.model}  (responses cached under .llm_cache/)")
+        return LLMDebatePredictor(model=args.model)
+    return MockDebatePredictor(skill=0.8, overconfidence=args.overconfidence)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--demo", action="store_true", help="use synthetic data, no network")
+    ap.add_argument("--live-llm", action="store_true",
+                    help="use the real LLM moderator instead of the mock (needs ANTHROPIC_API_KEY)")
+    ap.add_argument("--model", default="claude-sonnet-5")
     ap.add_argument("--history", type=int, nargs="*", default=[2023, 2024],
                     help="seasons of history available before the test season")
     ap.add_argument("--test-season", type=int, default=2025)
     ap.add_argument("--weeks", type=int, nargs=2, default=[4, 17],
                     metavar=("START", "END"), help="inclusive week range to test")
+    ap.add_argument("--limit", type=int, default=None,
+                    help="max players per week — keep this SMALL for live-llm to bound cost")
     ap.add_argument("--threshold", type=float, default=12.0,
                     help="PPR points that count as a startable week")
     ap.add_argument("--bins", type=int, default=10)
     ap.add_argument("--overconfidence", type=float, default=0.0,
-                    help="distort the mock's confidence to demo miscalibration")
+                    help="distort the MOCK's confidence to demo miscalibration")
     ap.add_argument("--plot", default="calibration.png")
     args = ap.parse_args()
 
@@ -90,16 +111,23 @@ def main() -> None:
         store = PointInTimeStore.from_nflverse(seasons)
         print(f"[live] loaded nflverse weekly data for seasons {seasons}")
 
+    if args.live_llm and args.limit is None:
+        print("WARNING: --live-llm without --limit will call the API for every "
+              "player every week. Add e.g. --limit 5 --weeks 5 6 for a first run.")
+
     weeks = range(args.weeks[0], args.weeks[1] + 1)
     bt = Backtester(store)
 
-    system = MockDebatePredictor(skill=0.8, overconfidence=args.overconfidence)
+    system = build_system(args)
     baseline = BaselinePredictor()
 
-    sys_records = bt.run(system, args.test_season, weeks, start_threshold=args.threshold)
-    base_records = bt.run(baseline, args.test_season, weeks, start_threshold=args.threshold)
+    sys_records = bt.run(system, args.test_season, weeks,
+                         start_threshold=args.threshold, max_players_per_week=args.limit)
+    base_records = bt.run(baseline, args.test_season, weeks,
+                          start_threshold=args.threshold, max_players_per_week=args.limit)
 
-    sys_sum = print_report("SYSTEM (mock debate)", sys_records, args.bins)
+    label = "SYSTEM (live LLM)" if args.live_llm else "SYSTEM (mock debate)"
+    sys_sum = print_report(label, sys_records, args.bins)
     base_sum = print_report("BASELINE (recent average)", base_records, args.bins)
 
     print("\n=== ABLATION: does the debate beat the baseline? ===")
