@@ -38,16 +38,21 @@ from llm_predictor import (
     _parse_json,
 )
 
-NEEDED = ["player_id", "player_display_name", "position", "recent_team",
-          "season", "week", "opponent_team", OUTCOME_COL,
+NEEDED = ["player_id", "player_display_name", "position", "team",
+          "opponent_team", "season", "week", OUTCOME_COL,
           "targets", "receptions", "carries"]
+
+_URL = ("https://github.com/nflverse/nflverse-data/releases/download/"
+        "stats_player/stats_player_week_{}.parquet")
 
 
 def load_weekly(seasons: list[int]) -> pd.DataFrame:
-    import nfl_data_py as nfl
-    w = nfl.import_weekly_data(seasons)
+    """Read nflverse weekly player stats directly from the current parquet
+    release (bypasses the stale nfl_data_py library, and supports 2025+)."""
+    frames = [pd.read_parquet(_URL.format(s)) for s in seasons]
+    w = pd.concat(frames, ignore_index=True)
     keep = [c for c in NEEDED if c in w.columns]
-    w = w[keep].rename(columns={"player_display_name": "name", "recent_team": "team"})
+    w = w[keep].rename(columns={"player_display_name": "name"})
     return w.dropna(subset=[OUTCOME_COL]).reset_index(drop=True)
 
 
@@ -75,7 +80,7 @@ def resolve_player(weekly: pd.DataFrame, season: int, week: int, query: str):
     """Find the player row for the target week by (case-insensitive) name."""
     target = weekly[(weekly.season == season) & (weekly.week == week)]
     exact = target[target.name.str.lower() == query.lower()]
-    hit = exact if not exact.empty else target[target.name.str.lower().str.contains(query.lower())]
+    hit = exact if not exact.empty else target[target.name.str.lower().str.contains(query.lower(), na=False)]
     if hit.empty:
         return None, f"no match for '{query}' in {season} week {week}"
     if len(hit) > 1:
