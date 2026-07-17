@@ -22,6 +22,32 @@ import pandas as pd
 
 OUTCOME_COL = "fantasy_points_ppr"
 
+_PARQUET_URL = ("https://github.com/nflverse/nflverse-data/releases/download/"
+                "stats_player/stats_player_week_{}.parquet")
+
+# Columns any predictor might use. `targets`/`receptions`/`carries` are optional
+# usage signals that the evidence packet includes when present.
+WEEKLY_COLS = ["player_id", "player_display_name", "position", "team",
+               "opponent_team", "season", "week", OUTCOME_COL,
+               "targets", "receptions", "carries"]
+
+
+def load_weekly(seasons: list[int]) -> pd.DataFrame:
+    """Read nflverse weekly player stats straight from the current parquet
+    release. This is the ONE loader — `nfl_data_py` is stale and stops before
+    2025, so going direct is what lets the harness see recent seasons at all.
+
+    Rows are COMPLETED games, and include postseason (weeks 18-22). Fantasy
+    leagues run on the regular season, so the default week ranges stop at 17;
+    widen them and you are scoring playoff games, where a defense-vs-position
+    table also only covers the teams still playing.
+    """
+    frames = [pd.read_parquet(_PARQUET_URL.format(s)) for s in seasons]
+    w = pd.concat(frames, ignore_index=True)
+    keep = [c for c in WEEKLY_COLS if c in w.columns]
+    w = w[keep].rename(columns={"player_display_name": "name"})
+    return w.dropna(subset=[OUTCOME_COL]).reset_index(drop=True)
+
 
 @dataclass
 class PlayerContext:
@@ -60,18 +86,19 @@ class PointInTimeStore:
 
     @classmethod
     def from_nflverse(cls, seasons: list[int]) -> "PointInTimeStore":
-        """Real data path. Requires `nfl_data_py`. Outcomes come from weekly
-        data; wire your own pregame projection source into `pregame`."""
-        import nfl_data_py as nfl
+        """Real data path, via `load_weekly`. Outcomes come from weekly data.
 
-        w = nfl.import_weekly_data(seasons)
-        w = w.rename(columns={"player_display_name": "name", "recent_team": "team"})
-        cols = ["player_id", "name", "position", "season", "week", OUTCOME_COL]
-        weekly = w[[c for c in cols if c in w.columns]].dropna(subset=[OUTCOME_COL]).copy()
+        The pregame table here is a PLACEHOLDER: `consensus_proj` is just the
+        player's prior-week points, which is barely a projection. It exists so
+        the plumbing runs end to end -- wire in a real consensus/ADP feed before
+        trusting these numbers, or use the enriched path, which derives an
+        opponent-adjusted projection from defense-vs-position instead.
+        """
+        weekly = load_weekly(seasons)
 
-        # Placeholder pregame table: a naive projection = prior-week points.
-        # Replace with a real consensus/ADP projection feed for production use.
-        pregame = weekly.copy()
+        # shift(1) means "previous row per player", so it is only the previous
+        # WEEK if the rows are in chronological order first.
+        pregame = weekly.sort_values(["player_id", "season", "week"]).copy()
         pregame["consensus_proj"] = (
             pregame.groupby("player_id")[OUTCOME_COL].shift(1)
         )

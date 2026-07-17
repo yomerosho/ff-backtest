@@ -43,20 +43,25 @@ Anything with `predict(ctx: PlayerContext, start_threshold: float) -> Verdict`
 drops into the backtester unchanged and keeps every metric working. That's the
 extension point — new predictors should implement it rather than modify the loop.
 
-## Two data loaders that are NOT interchangeable
+## Data loading
 
-- `PointInTimeStore.from_nflverse()` (used by `run_backtest.py` without `--demo`)
-  goes through `nfl_data_py`, which is stale and does **not** cover 2025+. Its
-  `pregame` table is a placeholder: `consensus_proj` = simply the prior week's
-  points, not a real projection feed.
-- `predict_roster.load_weekly()` (used by `predict_roster.py` and
-  `run_backtest_enriched.py`) reads nflverse parquet releases directly and does
-  support 2025+.
+`data.load_weekly(seasons)` is the single loader — every path goes through it
+(`PointInTimeStore.from_nflverse`, `predict_roster`, `run_backtest_enriched`).
+It reads nflverse parquet releases directly over HTTP; `nfl_data_py` is gone
+(stale, stopped before 2025). Needs `pyarrow`. There's no local caching, so each
+run re-downloads; if that becomes annoying, cache in `load_weekly`.
 
-So `run_backtest.py --test-season 2025` (the default!) will likely fail or come
-back empty, while the enriched path handles it. Prefer the parquet loader for
-new work. `pd.read_parquet` needs `pyarrow` — undeclared in requirements, but
-pandas 3.x pulls it in anyway.
+Two properties of the data worth knowing:
+
+- **Postseason is included** (weeks 18-22). Default week ranges stop at 17, so
+  it doesn't bite by default. Widen them and you're scoring playoff games, where
+  defense-vs-position only covers surviving teams.
+- **Every position is present** (linemen, DBs, K), mostly with 0.0 points rather
+  than null, so they survive the `dropna`. Callers filter to WR/RB/TE/QB.
+
+`from_nflverse`'s `pregame` table is still a PLACEHOLDER: `consensus_proj` is
+just the prior week's points. The enriched path derives a real opponent-adjusted
+projection instead, and is the better basis for conclusions.
 
 ## LLM cost and the cache
 

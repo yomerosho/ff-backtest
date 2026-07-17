@@ -23,6 +23,13 @@ Watch what miscalibration looks like:
 python run_backtest.py --demo --overconfidence 1.5
 ```
 
+Real data, still no API key — the mock predictor on real nflverse seasons
+(`pip install -r requirements-live.txt` first, for `pyarrow`):
+
+```bash
+python run_backtest.py --history 2023 2024 --test-season 2025 --weeks 4 8 --limit 20
+```
+
 ## The idea
 
 Replay a past season week by week. For each player in each week, the predictor
@@ -102,17 +109,21 @@ worthless live. Three guards:
 The **ablation** at the end runs a no-agents baseline on the identical weeks. If
 the debate can't beat recent-average, the LLM layer isn't earning its cost.
 
-## Data sources
+## Data
 
-Two loaders, and they are not interchangeable:
+Real data comes from the nflverse weekly parquet releases, read directly over
+HTTP by `data.load_weekly()` — the one loader every path shares. Needs `pyarrow`
+(in `requirements-live.txt`); each run re-downloads, as there's no local cache.
 
-- `PointInTimeStore.from_nflverse()` — used by `run_backtest.py` without
-  `--demo`. Goes through `nfl_data_py`, which is stale and does **not** cover
-  2025+. Its pregame projection is a placeholder (prior week's points); wire in a
-  real consensus feed for production use.
-- `predict_roster.load_weekly()` — used by `predict_roster.py` and
-  `run_backtest_enriched.py`. Reads the nflverse parquet releases directly and
-  supports 2025+. Prefer this for new work.
+Rows are completed games and include the postseason (weeks 18–22). The default
+week ranges stop at 17 because fantasy leagues run on the regular season; widen
+them and you're scoring playoff games.
+
+The pregame projection in `PointInTimeStore.from_nflverse()` is a **placeholder**
+— just the player's prior-week points. It exists so the plumbing runs end to end.
+Wire in a real consensus/ADP feed before trusting those numbers, or use the
+enriched path, which derives an opponent-adjusted projection from
+defense-vs-position.
 
 ## Files
 

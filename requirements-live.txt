@@ -1,2 +1,2 @@
 anthropic>=0.40
-nfl_data_py>=0.3
+pyarrow>=14

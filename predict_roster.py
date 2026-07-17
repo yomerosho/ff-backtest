@@ -18,41 +18,25 @@ Note on live use: nflverse weekly data covers COMPLETED games. To predict a
 truly upcoming week you need the current season loaded (weeks through last
 Sunday). Point --season/--week at any week that exists in the data; the same
 code serves a live week the moment that data is available.
+
+Data comes from `data.load_weekly`, the same loader the backtests use, so what
+you see here is what gets graded there.
 """
 from __future__ import annotations
 
 import argparse
-import sys
 import warnings
 
 warnings.filterwarnings("ignore")
 
-import numpy as np
 import pandas as pd
 
-from data import OUTCOME_COL, PlayerContext
+from data import OUTCOME_COL, PlayerContext, load_weekly
 from llm_predictor import (
     LLMDebatePredictor,
     build_evidence_packet,
     _parse_json,
 )
-
-NEEDED = ["player_id", "player_display_name", "position", "team",
-          "opponent_team", "season", "week", OUTCOME_COL,
-          "targets", "receptions", "carries"]
-
-_URL = ("https://github.com/nflverse/nflverse-data/releases/download/"
-        "stats_player/stats_player_week_{}.parquet")
-
-
-def load_weekly(seasons: list[int]) -> pd.DataFrame:
-    """Read nflverse weekly player stats directly from the current parquet
-    release (bypasses the stale nfl_data_py library, and supports 2025+)."""
-    frames = [pd.read_parquet(_URL.format(s)) for s in seasons]
-    w = pd.concat(frames, ignore_index=True)
-    keep = [c for c in NEEDED if c in w.columns]
-    w = w[keep].rename(columns={"player_display_name": "name"})
-    return w.dropna(subset=[OUTCOME_COL]).reset_index(drop=True)
 
 
 def defense_vs_position(weekly: pd.DataFrame, season: int, week: int) -> dict:
