@@ -18,7 +18,7 @@ import argparse
 import os
 import sys
 
-from data import PointInTimeStore
+from data import PointInTimeStore, load_env
 from backtest import Backtester, BaselinePredictor, MockDebatePredictor
 from scoring import summarize, calibration_curve
 
@@ -83,6 +83,7 @@ def build_system(args):
 
 
 def main() -> None:
+    load_env()
     ap = argparse.ArgumentParser()
     ap.add_argument("--demo", action="store_true", help="use synthetic data, no network")
     ap.add_argument("--live-llm", action="store_true",

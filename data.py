@@ -20,6 +20,19 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+
+def load_env() -> None:
+    """Load a local `.env` (e.g. ANTHROPIC_API_KEY) into the environment if
+    python-dotenv is installed. Guarded so the no-key `--demo` path still runs on
+    base requirements.txt; the live paths pull in python-dotenv via
+    requirements-live.txt. A missing or empty `.env` is a silent no-op."""
+    try:
+        from dotenv import load_dotenv
+    except ModuleNotFoundError:
+        return
+    load_dotenv()
+
+
 OUTCOME_COL = "fantasy_points_ppr"
 
 _PARQUET_URL = ("https://github.com/nflverse/nflverse-data/releases/download/"

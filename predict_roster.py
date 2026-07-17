@@ -31,7 +31,7 @@ warnings.filterwarnings("ignore")
 
 import pandas as pd
 
-from data import OUTCOME_COL, PlayerContext, load_weekly
+from data import OUTCOME_COL, PlayerContext, load_weekly, load_env
 from llm_predictor import (
     LLMDebatePredictor,
     build_evidence_packet,
@@ -125,6 +125,7 @@ def card(pred: LLMDebatePredictor, ctx: PlayerContext, threshold: float) -> str:
 
 
 def main() -> None:
+    load_env()
     ap = argparse.ArgumentParser()
     ap.add_argument("players", nargs="+", help="player names, quoted")
     ap.add_argument("--season", type=int, required=True)

@@ -21,7 +21,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 from predict_roster import defense_vs_position, build_context
-from data import OUTCOME_COL, load_weekly
+from data import OUTCOME_COL, load_weekly, load_env
 from backtest import BaselinePredictor
 from llm_predictor import LLMDebatePredictor
 from scoring import PredictionRecord, summarize, calibration_curve
@@ -85,6 +85,7 @@ def collect(system, baseline, weekly, season, weeks, threshold, positions, limit
 
 
 def main() -> None:
+    load_env()
     ap = argparse.ArgumentParser()
     ap.add_argument("--history", type=int, nargs="*", default=[2022, 2023])
     ap.add_argument("--test-season", type=int, default=2024)
