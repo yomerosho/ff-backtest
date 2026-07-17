@@ -34,7 +34,6 @@ from data import OUTCOME_COL, PlayerContext
 from llm_predictor import (
     LLMDebatePredictor,
     build_evidence_packet,
-    _hash,
     _parse_json,
 )
 
@@ -120,7 +119,7 @@ def card(pred: LLMDebatePredictor, ctx: PlayerContext, threshold: float) -> str:
     # recover the narrative (case for/against) from the cached raw response
     case_for = case_against = ""
     if pred.cache:
-        raw = pred.cache.get(_hash(pred.model + "\n" + build_evidence_packet(ctx, threshold)))
+        raw = pred.cache.get(pred.cache_key(build_evidence_packet(ctx, threshold)))
         if raw:
             try:
                 d = _parse_json(raw)
