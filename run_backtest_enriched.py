@@ -20,8 +20,8 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-from predict_roster import load_weekly, defense_vs_position, build_context
-from data import OUTCOME_COL
+from predict_roster import defense_vs_position, build_context
+from data import OUTCOME_COL, load_weekly
 from backtest import BaselinePredictor
 from llm_predictor import LLMDebatePredictor
 from scoring import PredictionRecord, summarize, calibration_curve

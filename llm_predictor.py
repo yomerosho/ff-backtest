@@ -12,8 +12,10 @@ Design choices that matter:
   * Evidence in, no invention. The agent sees only the facts assembled from the
     PlayerContext (recent stats, pregame projection, pregame news). The prompt
     forbids inventing stats — it argues over interpretation, not over what's true.
-  * Caching. Every call is cached by a hash of (model + evidence packet), so
-    re-running a backtest costs nothing after the first pass. Iterate freely.
+  * Caching. Every call is cached by a hash of (model + system prompt +
+    evidence packet), so re-running a backtest costs nothing after the first
+    pass. Iterate freely — editing the prompt invalidates the affected entries
+    rather than silently serving you the old answers.
   * Calibration is a hook, not a hope. The raw LLM probability passes through an
     optional `calibrator` you fit from a prior backtest (see `fit_calibrator`).
     LLMs are overconfident out of the box; the harness measures it and this
@@ -134,12 +136,21 @@ class LLMDebatePredictor:
         client=None,
         calibrator: Optional[Callable[[float], float]] = None,
         max_tokens: int = 700,
+        system_prompt: str = SYSTEM_PROMPT,
     ):
         self.model = model
         self.max_tokens = max_tokens
         self.calibrator = calibrator or (lambda p: p)
         self.cache = _FileCache(cache_dir) if cache_dir else None
+        self.system_prompt = system_prompt
         self._client = client            # inject a fake for offline tests
+
+    def cache_key(self, packet: str) -> str:
+        """Cache identity for one call. The system prompt belongs in here: a
+        response is only reusable if the question AND the instructions that
+        produced it are unchanged. Leave it out and a prompt edit reads back the
+        old answers, making the change look like a no-op."""
+        return _hash("\n".join((self.model, self.system_prompt, packet)))
 
     def _get_client(self):
         if self._client is None:
@@ -151,7 +162,7 @@ class LLMDebatePredictor:
         msg = self._get_client().messages.create(
             model=self.model,
             max_tokens=self.max_tokens,
-            system=SYSTEM_PROMPT,
+            system=self.system_prompt,
             messages=[{"role": "user", "content": packet}],
         )
         return "".join(b.text for b in msg.content if getattr(b, "type", None) == "text")
@@ -167,7 +178,7 @@ class LLMDebatePredictor:
 
     def predict(self, ctx: PlayerContext, start_threshold: float) -> Verdict:
         packet = build_evidence_packet(ctx, start_threshold)
-        key = _hash(self.model + "\n" + packet)
+        key = self.cache_key(packet)
         raw = self.cache.get(key) if self.cache else None
         if raw is None:
             raw = self._call_llm(packet)

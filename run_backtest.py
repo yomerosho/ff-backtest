@@ -6,7 +6,7 @@ Demo (no network, no API key, synthetic data):
 Real LLM predictor on synthetic data (needs ANTHROPIC_API_KEY; start small):
     python run_backtest.py --demo --live-llm --limit 5 --weeks 5 6
 
-Real LLM predictor on real data (also needs nfl_data_py):
+Real LLM predictor on real data (downloads nflverse parquet):
     python run_backtest.py --live-llm --history 2023 2024 --test-season 2025 --limit 10
 
 The design mirrors the plan: restrict information to before the test season's
