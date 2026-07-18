@@ -7,6 +7,7 @@ Needs ANTHROPIC_API_KEY (loaded from .env). Predictions are cached under
 """
 from __future__ import annotations
 
+import datetime
 import pathlib
 
 import streamlit as st
@@ -16,6 +17,24 @@ from llm_predictor import LLMDebatePredictor
 from dashboard_core import load_bundle, build_view, latest_played_week
 
 load_env()
+
+
+def current_nfl_season() -> int:
+    """The NFL season currently in play or next up. A season is labelled by the
+    year it starts (Sept); Jan/Feb playoffs still belong to the prior year's
+    season, so anything before March maps back a year."""
+    t = datetime.date.today()
+    return t.year if t.month >= 3 else t.year - 1
+
+
+def auto_week(latest_played: int) -> int:
+    """The week to predict by default: the next unplayed one during a live
+    season, Week 1 before kickoff, or a normal week for a finished season."""
+    if latest_played == 0:
+        return 1
+    if latest_played <= 17:
+        return latest_played + 1
+    return 10
 
 
 @st.cache_data(show_spinner="Loading season data…")
@@ -113,26 +132,24 @@ with st.sidebar:
     theme = THEMES[theme_name]
     inject_theme(theme)
     st.divider()
-    season = st.number_input("Season", min_value=2015, max_value=2026, value=2025, step=1)
 
-    # Load now so we can default Week to the next unplayed one (live use).
+    # By default the tool targets the current season's upcoming week — the live
+    # user never picks a year. The manual pickers below are only for replaying a
+    # specific past week (backtesting); they stay collapsed.
+    this_season = current_nfl_season()
+    with st.expander("⚙️ Backtest a past week", expanded=False):
+        season = st.number_input("Season", min_value=2015, max_value=this_season,
+                                 value=this_season, step=1)
+        week_override = st.number_input("Week (0 = current / upcoming)",
+                                        min_value=0, max_value=22, value=0, step=1)
+
     try:
         weekly, env = _bundle(int(season))
     except Exception as e:
         st.error(f"No data available for {int(season)} yet ({e}).")
         st.stop()
     lpw = latest_played_week(weekly, int(season))
-    if lpw == 0:                       # season not started -> Week 1 (upcoming)
-        suggested_week = 1
-    elif lpw <= 17:                    # in progress -> the next week to predict
-        suggested_week = lpw + 1
-    else:                              # finished season -> a normal backtest week
-        suggested_week = 10
-    week = st.number_input("Week", min_value=1, max_value=22, value=suggested_week, step=1)
-    if int(week) > lpw:
-        note = "season hasn't started" if lpw == 0 else f"latest played: Week {lpw}"
-        st.caption(f"🟢 Week {int(week)} is **upcoming** ({note}) — opponents come "
-                   f"from the schedule.")
+    week = int(week_override) if week_override else auto_week(lpw)
 
     threshold = st.slider("Startable threshold (PPR pts)", 6.0, 24.0, 12.0, 0.5,
                           help="A week at or above this counts as a 'hit'.")
@@ -147,8 +164,13 @@ with st.sidebar:
                "the selected week are used — no leakage.")
 
 st.title("🏈 Start/Sit Debate")
-st.markdown("Add players to see whether the debate expects them to **beat their "
-            "recent-average benchmark** — and why.")
+_upcoming = int(week) > lpw
+_tag = "🟢 upcoming" if _upcoming else "backtest"
+st.markdown(f"**Predicting {int(season)} · Week {int(week)}**  ·  {_tag}")
+st.caption("Add players to see whether the debate expects them to beat their "
+           "recent-average benchmark — and why. Each player is judged on his own "
+           "prior games; the week above is set automatically to the next one to "
+           "play (change it under *Backtest a past week*).")
 
 # ---- player list (session state) -------------------------------------------
 if "players" not in st.session_state:
