@@ -316,29 +316,45 @@ pred = LLMDebatePredictor(model=model)
 
 
 def range_bar(v) -> str:
-    """Horizontal floor→ceiling bar with median, threshold and benchmark marks."""
-    hi = max(v.proj_ceiling, v.threshold, v.benchmark) * 1.08 or 1.0
+    """Horizontal floor→ceiling bar, with each value printed on it.
+
+    Rows are stacked so labels can't collide: median above the bar, floor/ceiling
+    just below their band ends, then the start line and benchmark below those.
+    """
+    hi = max(v.proj_ceiling, v.threshold, v.benchmark) * 1.12 or 1.0
     def pct(x): return max(0.0, min(100.0, 100.0 * x / hi))
     fl, md, cl = pct(v.proj_floor), pct(v.proj_median), pct(v.proj_ceiling)
     thr, bm = pct(v.threshold), pct(v.benchmark)
     band = "#22c55e" if v.verdict == "start" else "#9ca3af"
+    lab = ("position:absolute;transform:translateX(-50%);white-space:nowrap;"
+           "font-size:.72rem;line-height:1;")
     return f"""
-    <div style="position:relative;height:46px;margin:6px 0 2px;">
-      <div style="position:absolute;top:18px;width:100%;height:10px;
-                  background:rgba(128,128,128,.18);border-radius:5px;"></div>
-      <div style="position:absolute;top:18px;left:{fl}%;width:{max(cl-fl,1)}%;height:10px;
-                  background:{band};opacity:.55;border-radius:5px;"></div>
-      <div title="median" style="position:absolute;top:12px;left:{md}%;width:3px;height:22px;
-                  background:{band};transform:translateX(-1px);"></div>
-      <div title="startable line" style="position:absolute;top:8px;left:{thr}%;width:2px;height:30px;
-                  background:#ef4444;"></div>
-      <div title="recent-average benchmark" style="position:absolute;top:8px;left:{bm}%;width:2px;
-                  height:30px;background:#3b82f6;border-left:2px dashed #3b82f6;"></div>
+    <div style="position:relative;height:80px;margin:8px 0 2px;">
+      <!-- median, above the bar -->
+      <div style="{lab}top:0;left:{md}%;font-weight:700;color:{band};">{v.proj_median:.1f}</div>
+      <!-- track + floor..ceiling band -->
+      <div style="position:absolute;top:20px;width:100%;height:12px;
+                  background:rgba(128,128,128,.18);border-radius:6px;"></div>
+      <div style="position:absolute;top:20px;left:{fl}%;width:{max(cl-fl,1)}%;height:12px;
+                  background:{band};opacity:.5;border-radius:6px;"></div>
+      <!-- ticks -->
+      <div style="position:absolute;top:15px;left:{md}%;width:3px;height:22px;
+                  background:{band};transform:translateX(-1.5px);"></div>
+      <div style="position:absolute;top:15px;left:{thr}%;width:2px;height:22px;
+                  background:#ef4444;transform:translateX(-1px);"></div>
+      <div style="position:absolute;top:15px;left:{bm}%;width:2px;height:22px;
+                  background:#3b82f6;transform:translateX(-1px);"></div>
+      <!-- floor / ceiling values at the band ends -->
+      <div style="{lab}top:40px;left:{fl}%;color:{band};">{v.proj_floor:.1f}</div>
+      <div style="{lab}top:40px;left:{cl}%;color:{band};">{v.proj_ceiling:.1f}</div>
+      <!-- reference lines -->
+      <div style="{lab}top:58px;left:{thr}%;color:#ef4444;">start {v.threshold:.0f}</div>
+      <div style="{lab}top:58px;left:{bm}%;color:#3b82f6;">avg {v.benchmark:.1f}</div>
     </div>
-    <div style="font-size:.75rem;opacity:.7;">
-      <span style="color:{band};">■ floor–ceiling</span> &nbsp;
-      <span style="color:#ef4444;">┃ start line {v.threshold:.0f}</span> &nbsp;
-      <span style="color:#3b82f6;">┋ benchmark {v.benchmark:.1f}</span>
+    <div style="font-size:.72rem;opacity:.65;">
+      floor {v.proj_floor:.1f} · median {v.proj_median:.1f} · ceiling
+      {v.proj_ceiling:.1f} — floor/ceiling are the model's rough 10th/90th
+      percentile guesses, <b>not</b> bounds: about 1 game in 10 lands outside each end.
     </div>"""
 
 
