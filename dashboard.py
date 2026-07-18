@@ -5,10 +5,14 @@
 Needs ANTHROPIC_API_KEY: locally from `.env`, on Streamlit Cloud from the app's
 Secrets (`ANTHROPIC_API_KEY = "sk-ant-..."`). Predictions are cached under
 .llm_cache/, so re-checking a player is instant and free.
+
+Set APP_PASSWORD in Secrets to gate a publicly-deployed app: every debate is
+billed to the owner's key, so the gate runs before any data load or API call.
 """
 from __future__ import annotations
 
 import datetime
+import hmac
 import os
 import pathlib
 
@@ -29,6 +33,47 @@ if not os.environ.get("ANTHROPIC_API_KEY"):
         _key = None
     if _key:
         os.environ["ANTHROPIC_API_KEY"] = str(_key)
+
+
+def _configured(name: str):
+    """Read a setting from the environment, falling back to Streamlit Secrets."""
+    val = os.environ.get(name)
+    if val:
+        return val
+    try:
+        return st.secrets[name]
+    except Exception:
+        return None
+
+
+def password_gate() -> None:
+    """Block the app behind a shared password when APP_PASSWORD is set.
+
+    Community Cloud's free tier allows only one private app, so a public deploy
+    needs its own gate: every debate is billed to the OWNER's API key. This runs
+    before any data load or API call, so an unauthenticated visitor can never
+    spend anything. Not real auth — one shared secret, no per-user accounts — but
+    it does stop strangers and crawlers who find the URL.
+    """
+    expected = _configured("APP_PASSWORD")
+    if not expected:
+        st.warning("**This app is unlocked.** Anyone with the URL can run "
+                   "debates billed to your API key. Set `APP_PASSWORD` in "
+                   "Settings → Secrets before sharing it.", icon="⚠️")
+        return
+    if st.session_state.get("_authenticated"):
+        return
+
+    st.title("🏈 Start/Sit Debate")
+    st.caption("Enter the app password to continue.")
+    pw = st.text_input("Password", type="password", label_visibility="collapsed")
+    if pw:
+        # constant-time compare so a wrong guess leaks nothing via timing
+        if hmac.compare_digest(str(pw), str(expected)):
+            st.session_state["_authenticated"] = True
+            st.rerun()
+        st.error("Incorrect password.")
+    st.stop()
 
 
 def current_nfl_season() -> int:
@@ -67,6 +112,8 @@ def _refresh_data(season: int) -> None:
     st.cache_data.clear()
 
 st.set_page_config(page_title="Start/Sit Debate", page_icon="🏈", layout="wide")
+
+password_gate()      # must precede any data load or API call
 
 if not os.environ.get("ANTHROPIC_API_KEY"):
     st.error(

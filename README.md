@@ -119,8 +119,12 @@ tighten your threshold when you can't afford a bust.
 - **Dependencies** come from `requirements.txt` (the complete manifest).
 - **⚠️ A public app spends your API key.** Streamlit Community Cloud apps are
   reachable by anyone with the URL, and every debate is a billed call on *your*
-  key. Restrict viewers (or keep the URL private) before sharing, and set a spend
-  limit in the Anthropic Console.
+  key. Community Cloud's free tier allows only **one** private app, so if that
+  slot is taken, gate the app with a password instead: add `APP_PASSWORD =
+  "something-long"` to *Settings → Secrets*. The app then blocks on a password
+  screen before any data load or API call, so a stranger who finds the URL can't
+  spend anything. Set a spend limit in the Anthropic Console as a backstop.
+  Without `APP_PASSWORD` the app runs open and says so in a banner.
 - The `.data_cache/` and `.llm_cache/` directories are ephemeral on Cloud — they
   rebuild after a restart, which costs a few extra calls but nothing breaks.
 
