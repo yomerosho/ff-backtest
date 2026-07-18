@@ -31,12 +31,9 @@ warnings.filterwarnings("ignore")
 
 import pandas as pd
 
-from data import OUTCOME_COL, PlayerContext, load_weekly, load_env, load_schedule, game_env
-from llm_predictor import (
-    LLMDebatePredictor,
-    build_evidence_packet,
-    _parse_json,
-)
+from data import (OUTCOME_COL, PlayerContext, load_weekly, load_env, load_schedule,
+                  game_env, load_injuries, injury_map)
+from llm_predictor import LLMDebatePredictor
 
 
 def defense_vs_position(weekly: pd.DataFrame, season: int, week: int) -> dict:
@@ -72,32 +69,41 @@ def resolve_player(weekly: pd.DataFrame, season: int, week: int, query: str):
     return hit.iloc[0], None
 
 
-def build_context(weekly: pd.DataFrame, prow: pd.Series, dvp: dict,
-                  env: dict | None = None) -> PlayerContext:
-    pid, season, week = prow["player_id"], int(prow["season"]), int(prow["week"])
-    hist = weekly[(weekly.player_id == pid)
-                  & ((weekly.season < season) | ((weekly.season == season) & (weekly.week < week)))]
-    opp = prow["opponent_team"]
-    pos = prow["position"]
-    team = prow.get("team")
-    matchup = {"opponent": opp}
-    news = []
+def matchup_and_news(hist: pd.DataFrame, team, opponent, position: str,
+                     dvp: dict, env: dict | None, season: int, week: int,
+                     injury: dict | None = None):
+    """Build the (matchup, news) evidence for one player-week from the defense-
+    vs-position table, Vegas game environment, and the player's own injury
+    designation. Shared by the backtest path (build_context) and the live
+    dashboard so both see identical facts."""
+    matchup = {"opponent": opponent}
+    news: list[dict] = []
 
-    key = (opp, pos)
+    # Injury status first — it's the strongest single signal (an Out player scores
+    # ~0). Pregame designation, so leakage-safe.
+    if injury and injury.get("status"):
+        parts = [injury["status"]]
+        if injury.get("injury"):
+            parts.append(f"({injury['injury']})")
+        if injury.get("practice"):
+            parts.append(f"— {injury['practice']}")
+        matchup["injury_status"] = injury["status"]
+        news.append({"text": "Injury report: " + " ".join(parts) + "."})
+
+    key = (opponent, position)
     if key in dvp:
         avg, rank, league_avg, n = dvp[key]
         ordinal = {1: "most", n: "fewest"}.get(rank, f"{rank}th-most")
-        news.append({"text": f"Matchup: {opp} defense allows {avg:.1f} PPR/game to "
-                             f"{pos}s this season ({ordinal} of {n}; league avg {league_avg:.1f})."})
-        # opponent-adjusted projection off recent form
+        news.append({"text": f"Matchup: {opponent} defense allows {avg:.1f} PPR/game to "
+                             f"{position}s this season ({ordinal} of {n}; league avg {league_avg:.1f})."})
         recent = hist.tail(4)[OUTCOME_COL]
         if not recent.empty and league_avg > 0:
-            base = float(recent.mean())
-            matchup["consensus_proj"] = round(base * (avg / league_avg), 1)
+            matchup["consensus_proj"] = round(float(recent.mean()) * (avg / league_avg), 1)
 
     # Vegas game environment — the pregame signal recent-average can't contain.
+    # implied_total is None until the lines are posted, so guard on it.
     ge = env.get((team, season, week)) if env else None
-    if ge:
+    if ge and ge.get("implied_total") is not None:
         matchup["implied_total"] = ge["implied_total"]
         fav = ge["favored_by"]
         line = (f"favored by {fav:.1f}" if fav > 0
@@ -105,24 +111,25 @@ def build_context(weekly: pd.DataFrame, prow: pd.Series, dvp: dict,
         news.append({"text": f"Game environment: {team} implied for {ge['implied_total']:.1f} "
                              f"pts ({'home' if ge['is_home'] else 'away'} vs {ge['opponent']}, "
                              f"game total {ge['game_total']:.1f}, {line})."})
+    return matchup, news
 
-    return PlayerContext(player_id=pid, name=prow["name"], position=pos,
+
+def build_context(weekly: pd.DataFrame, prow: pd.Series, dvp: dict,
+                  env: dict | None = None, injuries: dict | None = None) -> PlayerContext:
+    pid, season, week = prow["player_id"], int(prow["season"]), int(prow["week"])
+    hist = weekly[(weekly.player_id == pid)
+                  & ((weekly.season < season) | ((weekly.season == season) & (weekly.week < week)))]
+    injury = injuries.get((pid, season, week)) if injuries else None
+    matchup, news = matchup_and_news(hist, prow.get("team"), prow["opponent_team"],
+                                     prow["position"], dvp, env, season, week, injury)
+    return PlayerContext(player_id=pid, name=prow["name"], position=prow["position"],
                          season=season, week=week, history=hist,
                          matchup=matchup, news=news)
 
 
 def card(pred: LLMDebatePredictor, ctx: PlayerContext, threshold: float) -> str:
-    v = pred.predict(ctx, threshold)
-    # recover the narrative (case for/against) from the cached raw response
-    case_for = case_against = ""
-    if pred.cache:
-        raw = pred.cache.get(pred.cache_key(build_evidence_packet(ctx, threshold)))
-        if raw:
-            try:
-                d = _parse_json(raw)
-                case_for, case_against = d.get("case_for", ""), d.get("case_against", "")
-            except Exception:
-                pass
+    v, d = pred.predict_full(ctx, threshold)
+    case_for, case_against = d.get("case_for", ""), d.get("case_against", "")
     verdict = v.verdict.upper()
     conf = f"{v.confidence*100:.0f}%"
     opp = ctx.matchup.get("opponent", "?")
@@ -153,6 +160,7 @@ def main() -> None:
     weekly = load_weekly(seasons)
     dvp = defense_vs_position(weekly, args.season, args.week)
     env = game_env(load_schedule(seasons))
+    injuries = injury_map(load_injuries(seasons))
     pred = LLMDebatePredictor(model=args.model)
 
     print(f"\nPredictions for {args.season} week {args.week} "
@@ -162,7 +170,7 @@ def main() -> None:
         if err:
             print(f"  {query:<22} — {err}")
             continue
-        ctx = build_context(weekly, prow, dvp, env)
+        ctx = build_context(weekly, prow, dvp, env, injuries)
         print(card(pred, ctx, args.threshold))
         print()
 

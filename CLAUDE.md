@@ -1,8 +1,10 @@
 # ff-backtest
 
-Walk-forward backtest harness for a fantasy-football start/sit system: evidence
-packet → LLM debate → verdict (start/sit + confidence + floor/median/ceiling),
-graded against what actually happened.
+Fantasy-football start/sit system: evidence packet → LLM debate → verdict
+(start/sit + confidence + floor/median/ceiling). Two modes off one engine —
+**backtest** (replay a past week, graded against what happened) and **live**
+(predict the upcoming week before it's played). Primary interface is a Streamlit
+dashboard; CLIs remain for backtesting/experiments.
 
 ## Layout
 
@@ -13,13 +15,41 @@ without rewriting the imports.
 
 | File | Role |
 |---|---|
-| `data.py` | `PointInTimeStore` (cutoff enforcement), `PlayerContext`, synthetic + nflverse loaders |
+| `dashboard.py` | Streamlit app: auto-targets current season's upcoming week; theme, models, refresh, bulk-add |
+| `dashboard_core.py` | UI-free `build_view` (unified backtest+live resolution), `PlayerView`, `latest_played_week` |
+| `data.py` | `load_weekly` / `load_schedule` (cached under `.data_cache/`), `game_env` (Vegas), `PointInTimeStore`, `PlayerContext` |
 | `backtest.py` | replay loop, `Predictor` protocol, `Verdict`, `BaselinePredictor`, `MockDebatePredictor` |
 | `scoring.py` | `PredictionRecord`, hit rate, MAE, Brier, calibration curve, ECE |
-| `llm_predictor.py` | `LLMDebatePredictor` (real Anthropic call), prompt, cache, `fit_calibrator`, `FakeClient` |
-| `run_backtest.py` | main CLI: mock or bare-LLM, vs baseline, with ablation |
-| `run_backtest_enriched.py` | same, but every packet carries opponent + defense-vs-position |
-| `predict_roster.py` | practical front end: name your players, get decision cards |
+| `llm_predictor.py` | `LLMDebatePredictor` (`predict_full` returns verdict + case_for/against), prompt, cache, `fit_calibrator`, `FakeClient` |
+| `predict_roster.py` | evidence assembly: `matchup_and_news` (DvP + Vegas), `build_context`, decision-card CLI |
+| `run_backtest_enriched.py` | backtest over enriched evidence; `collect` with balanced per-position selection |
+| `run_backtest.py` | original ablation CLI, reliability plot |
+| `experiments.py` | accuracy-diagnostic driver (per-position, bias, calibration test, CSV) |
+
+## Live vs backtest resolution
+
+`dashboard_core.build_view` is unified: if the target week has a stat line it uses
+it (backtest); otherwise the week is UPCOMING — current team from the player's
+latest game, opponent from `game_env` (schedule). `game_env` keeps opponent/home
+for every scheduled game with Vegas fields `None` until lines post. `load_weekly`
+tolerates a not-yet-published season. Caveat: Week 1 of a new season uses last
+season's team (offseason moves not reflected) and thin evidence.
+
+## Measured accuracy (2024, n=504 balanced, Haiku)
+
+Start/sit *direction* ≈ recent-average baseline (~0.70). Real wins are projection
+MAE (6.8 vs 7.15) and bias (+0.2 vs +1.6 — recent-average over-projects in-form
+players). Vegas + injuries give the best calibration (ECE 0.055) and hit-rate on
+starts (0.712). A stronger model did NOT help — bottleneck is evidence, not
+reasoning. Edge is largest on borderline players.
+
+**Survivorship blind spot — read every backtest number with this in mind.** The
+eval only contains players who PLAYED (they need a stat line to grade against), so
+anyone ruled Out is silently excluded. Of 504 rows only 22 had an injury
+designation and all were "Questionable" — the feature's biggest live win (benching
+an Out player) is unmeasurable here and the aggregate numbers understate it.
+Don't "fix" this by scoring Out players as 0; that invents outcomes. Judge injury
+work by live behavior (e.g. McCaffrey Out wk2: START .78/18.2 → SIT .02/0.0).
 
 ## The prime directive: no leakage
 

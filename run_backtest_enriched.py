@@ -20,6 +20,8 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
+import pandas as pd
+
 from predict_roster import defense_vs_position, build_context
 from data import OUTCOME_COL, load_weekly, load_env
 from backtest import BaselinePredictor
@@ -53,20 +55,38 @@ def print_report(name: str, records, n_bins: int) -> dict:
     return s
 
 
+def _select_active(weekly, season, wk, positions, limit, per_position):
+    """Who to evaluate in this week. Default (`limit`) takes the first N rows,
+    which is arbitrary and starves low-frequency positions (RBs came out to ~1
+    per week). `per_position` instead takes the top-K of each position by season-
+    to-date average points -- the actually-rostered, startable players, and
+    balanced across positions so per-position accuracy is measurable."""
+    active = weekly[(weekly.season == season) & (weekly.week == wk)
+                    & (weekly.position.isin(positions))]
+    if not per_position:
+        return active.head(limit) if limit else active
+    prior = weekly[(weekly.season == season) & (weekly.week < wk)]
+    form = prior.groupby("player_id")[OUTCOME_COL].mean()
+    active = active.assign(_form=active["player_id"].map(form).fillna(0.0))
+    parts = [active[active.position == pos].sort_values("_form", ascending=False)
+             .head(per_position.get(pos, 0)) for pos in positions]
+    return pd.concat(parts).drop(columns="_form")
+
+
 def collect(system, baseline, weekly, season, weeks, threshold, positions, limit,
-            min_history=3, env=None):
+            min_history=3, env=None, per_position=None, injuries=None):
     """One pass over the season; builds enriched context per player-week and
     scores both predictors against the true outcome. `env` is an optional
-    (team, season, week) -> game-environment map from `data.game_env`."""
+    (team, season, week) -> game-environment map from `data.game_env`; `injuries`
+    an optional (player_id, season, week) -> report map from `data.injury_map`.
+    `per_position` (e.g. {"WR":12,"RB":12,...}) selects a balanced, startable
+    eval set instead of the arbitrary head(limit)."""
     sys_recs, base_recs = [], []
     for wk in weeks:
         dvp = defense_vs_position(weekly, season, wk)
-        active = weekly[(weekly.season == season) & (weekly.week == wk)
-                        & (weekly.position.isin(positions))]
-        if limit:
-            active = active.head(limit)
+        active = _select_active(weekly, season, wk, positions, limit, per_position)
         for _, prow in active.iterrows():
-            ctx = build_context(weekly, prow, dvp, env)
+            ctx = build_context(weekly, prow, dvp, env, injuries)
             if len(ctx.history) < min_history:
                 continue
             actual = float(prow[OUTCOME_COL])

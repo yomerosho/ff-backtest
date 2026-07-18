@@ -69,12 +69,20 @@ def load_weekly(seasons: list[int]) -> pd.DataFrame:
         if cache.exists():
             frames.append(pd.read_parquet(cache))
             continue
-        w = pd.read_parquet(_PARQUET_URL.format(s))
+        try:
+            w = pd.read_parquet(_PARQUET_URL.format(s))
+        except Exception:
+            # A not-yet-published season (e.g. an upcoming year before Week 1, or
+            # the current week before its games post) has no parquet yet. Skip it
+            # and use whatever prior seasons loaded -- do NOT cache the miss.
+            continue
         keep = [c for c in WEEKLY_COLS if c in w.columns]
         w = w[keep].rename(columns={"player_display_name": "name"}).dropna(subset=[OUTCOME_COL])
         _DATA_CACHE.mkdir(parents=True, exist_ok=True)
         w.to_parquet(cache)
         frames.append(w)
+    if not frames:
+        raise RuntimeError(f"no weekly data available for any of {seasons}")
     return pd.concat(frames, ignore_index=True).reset_index(drop=True)
 
 
@@ -104,19 +112,83 @@ def game_env(schedule: pd.DataFrame) -> dict:
     good a scoring spot is this' -- exactly what recent-average can't know."""
     out: dict = {}
     for _, r in schedule.iterrows():
-        total, spread = r.get("total_line"), r.get("spread_line")
-        if pd.isna(total) or pd.isna(spread):
-            continue
         season, week = int(r["season"]), int(r["week"])
         home, away = r["home_team"], r["away_team"]
+        total, spread = r.get("total_line"), r.get("spread_line")
+        # Opponent/home are known as soon as the game is scheduled; the Vegas
+        # fields stay None until the lines are posted (they arrive days before
+        # kickoff). This lets an UPCOMING week resolve matchups before its lines
+        # exist -- the whole point of live use.
+        if pd.isna(total) or pd.isna(spread):
+            out[(home, season, week)] = dict(implied_total=None, game_total=None,
+                                             favored_by=None, is_home=True, opponent=away)
+            out[(away, season, week)] = dict(implied_total=None, game_total=None,
+                                             favored_by=None, is_home=False, opponent=home)
+            continue
+        total, spread = float(total), float(spread)
         # spread_line > 0 => home favored by that many. favored_by is each team's
         # own margin: positive = favored, negative = underdog.
         out[(home, season, week)] = dict(
-            implied_total=round((total + spread) / 2.0, 1), game_total=float(total),
-            favored_by=float(spread), is_home=True, opponent=away)
+            implied_total=round((total + spread) / 2.0, 1), game_total=total,
+            favored_by=spread, is_home=True, opponent=away)
         out[(away, season, week)] = dict(
-            implied_total=round((total - spread) / 2.0, 1), game_total=float(total),
-            favored_by=float(-spread), is_home=False, opponent=home)
+            implied_total=round((total - spread) / 2.0, 1), game_total=total,
+            favored_by=-spread, is_home=False, opponent=home)
+    return out
+
+
+_INJURY_URL = ("https://github.com/nflverse/nflverse-data/releases/download/"
+               "injuries/injuries_{}.parquet")
+
+
+def load_injuries(seasons: list[int]) -> pd.DataFrame:
+    """Official weekly injury reports (per-season parquet). `report_status` is the
+    game-status designation (Out / Doubtful / Questionable) filed BEFORE the game,
+    so it is a leakage-safe pregame fact -- same category as the Vegas lines.
+    Cached; a not-yet-published season is skipped rather than fatal."""
+    frames = []
+    for s in seasons:
+        cache = _DATA_CACHE / f"injuries_{s}.parquet"
+        if cache.exists():
+            frames.append(pd.read_parquet(cache))
+            continue
+        try:
+            df = pd.read_parquet(_INJURY_URL.format(s))
+        except Exception:
+            continue
+        _DATA_CACHE.mkdir(parents=True, exist_ok=True)
+        df.to_parquet(cache)
+        frames.append(df)
+    if not frames:
+        return pd.DataFrame(columns=["gsis_id", "season", "week", "report_status",
+                                     "report_primary_injury", "practice_status",
+                                     "date_modified"])
+    return pd.concat(frames, ignore_index=True)
+
+
+def injury_map(injuries: pd.DataFrame) -> dict:
+    """Map (player_id, season, week) -> the player's own pregame injury
+    designation. Only players with a real `report_status` are included; everyone
+    else is treated as healthy (no entry). gsis_id == the weekly player_id."""
+    out: dict = {}
+    if injuries.empty:
+        return out
+    inj = injuries.dropna(subset=["gsis_id"]).copy()
+    # keep the final report per player-week (latest edit = pregame designation)
+    if "date_modified" in inj.columns:
+        inj = inj.sort_values("date_modified")
+    inj = inj.drop_duplicates(subset=["gsis_id", "season", "week"], keep="last")
+    for _, r in inj.iterrows():
+        status = r.get("report_status")
+        if pd.isna(status) or not str(status).strip():
+            continue
+        out[(r["gsis_id"], int(r["season"]), int(r["week"]))] = dict(
+            status=str(status).strip(),
+            injury=(str(r["report_primary_injury"]).strip()
+                    if pd.notna(r.get("report_primary_injury")) else ""),
+            practice=(str(r["practice_status"]).strip()
+                      if pd.notna(r.get("practice_status")) else ""),
+        )
     return out
 
 

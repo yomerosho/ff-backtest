@@ -58,6 +58,11 @@ floor-to-ceiling range WIDE enough to reflect real week-to-week variance — a
 narrow band around the median is almost always wrong. For a high-target WR or a
 featured RB, the ceiling should be roughly twice the floor.
 
+Injury designations are decisive when present. OUT means the player will not play
+— project ~0 and p_exceed near 0. DOUBTFUL means very likely inactive — treat him
+as a probable zero. QUESTIONABLE means genuinely uncertain — widen the floor and
+shade the projection down, more so if he did not practice fully.
+
 Calibration matters. p_exceed = 0.7 means that across many similar spots the
 player clears the bar about 7 times in 10. Do not default to 0 or 1 — reflect
 genuine uncertainty, and when the evidence is thin, stay near the base rate."""
@@ -186,7 +191,11 @@ class LLMDebatePredictor:
         verdict = "start" if p > 0.5 else "sit"
         return Verdict(verdict, p, median, floor, ceiling)
 
-    def predict(self, ctx: PlayerContext, start_threshold: float) -> Verdict:
+    def predict_full(self, ctx: PlayerContext, start_threshold: float):
+        """Return (Verdict, data) where data is the parsed model response —
+        case_for, case_against, p_exceed, floor/median/ceiling. The narrative is
+        what a dashboard needs to explain WHY, so expose it rather than making
+        callers re-read the cache by hand."""
         packet = build_evidence_packet(ctx, start_threshold)
         key = self.cache_key(packet)
         raw = self.cache.get(key) if self.cache else None
@@ -199,7 +208,10 @@ class LLMDebatePredictor:
         except (json.JSONDecodeError, ValueError):
             # A malformed response becomes a maximally-uncertain sit, not a crash.
             data = {"p_exceed": 0.5, "median": start_threshold}
-        return self._to_verdict(data, start_threshold)
+        return self._to_verdict(data, start_threshold), data
+
+    def predict(self, ctx: PlayerContext, start_threshold: float) -> Verdict:
+        return self.predict_full(ctx, start_threshold)[0]
 
 
 def fit_calibrator(records, n_bins: int = 10) -> Callable[[float], float]:
