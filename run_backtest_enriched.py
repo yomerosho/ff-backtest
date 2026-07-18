@@ -53,9 +53,11 @@ def print_report(name: str, records, n_bins: int) -> dict:
     return s
 
 
-def collect(system, baseline, weekly, season, weeks, threshold, positions, limit, min_history=3):
+def collect(system, baseline, weekly, season, weeks, threshold, positions, limit,
+            min_history=3, env=None):
     """One pass over the season; builds enriched context per player-week and
-    scores both predictors against the true outcome."""
+    scores both predictors against the true outcome. `env` is an optional
+    (team, season, week) -> game-environment map from `data.game_env`."""
     sys_recs, base_recs = [], []
     for wk in weeks:
         dvp = defense_vs_position(weekly, season, wk)
@@ -64,7 +66,7 @@ def collect(system, baseline, weekly, season, weeks, threshold, positions, limit
         if limit:
             active = active.head(limit)
         for _, prow in active.iterrows():
-            ctx = build_context(weekly, prow, dvp)
+            ctx = build_context(weekly, prow, dvp, env)
             if len(ctx.history) < min_history:
                 continue
             actual = float(prow[OUTCOME_COL])
