@@ -126,7 +126,13 @@ def main() -> None:
     ap.add_argument("--tag", default="baseline", help="label for the saved CSV")
     ap.add_argument("--vegas", action="store_true",
                     help="add Vegas game-environment (implied total, spread) to the packet")
+    ap.add_argument("--balanced", action="store_true",
+                    help="evaluate a position-balanced, startable set (top-K/pos by form) "
+                         "instead of head(limit) -- fixes RB under-sampling")
     args = ap.parse_args()
+
+    # startable-pool sizes per week when --balanced; mirrors real roster depth
+    per_position = {"WR": 12, "RB": 12, "TE": 6, "QB": 6} if args.balanced else None
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
         raise SystemExit("ERROR: needs ANTHROPIC_API_KEY (set it in .env).")
@@ -143,10 +149,12 @@ def main() -> None:
     system = LLMDebatePredictor(model=args.model)
     baseline = BaselinePredictor()
     weeks = range(args.weeks[0], args.weeks[1] + 1)
-    print(f"[experiment] model={args.model}  weeks={args.weeks}  limit={args.limit}  vegas={args.vegas}")
+    print(f"[experiment] model={args.model}  weeks={args.weeks}  limit={args.limit}  "
+          f"vegas={args.vegas}  balanced={args.balanced}")
 
     sys_recs, base_recs = collect(system, baseline, weekly, args.test_season, weeks,
-                                  args.threshold, POSITIONS, args.limit, env=env)
+                                  args.threshold, POSITIONS, args.limit, env=env,
+                                  per_position=per_position)
 
     out = f"records_{args.tag}_{args.test_season}.csv"
     save_csv(sys_recs, out)
