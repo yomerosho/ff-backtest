@@ -31,7 +31,7 @@ warnings.filterwarnings("ignore")
 
 import pandas as pd
 
-from data import OUTCOME_COL, PlayerContext, load_weekly
+from data import OUTCOME_COL, PlayerContext, load_weekly, load_env, load_schedule, game_env
 from llm_predictor import (
     LLMDebatePredictor,
     build_evidence_packet,
@@ -72,12 +72,14 @@ def resolve_player(weekly: pd.DataFrame, season: int, week: int, query: str):
     return hit.iloc[0], None
 
 
-def build_context(weekly: pd.DataFrame, prow: pd.Series, dvp: dict) -> PlayerContext:
+def build_context(weekly: pd.DataFrame, prow: pd.Series, dvp: dict,
+                  env: dict | None = None) -> PlayerContext:
     pid, season, week = prow["player_id"], int(prow["season"]), int(prow["week"])
     hist = weekly[(weekly.player_id == pid)
                   & ((weekly.season < season) | ((weekly.season == season) & (weekly.week < week)))]
     opp = prow["opponent_team"]
     pos = prow["position"]
+    team = prow.get("team")
     matchup = {"opponent": opp}
     news = []
 
@@ -92,6 +94,17 @@ def build_context(weekly: pd.DataFrame, prow: pd.Series, dvp: dict) -> PlayerCon
         if not recent.empty and league_avg > 0:
             base = float(recent.mean())
             matchup["consensus_proj"] = round(base * (avg / league_avg), 1)
+
+    # Vegas game environment — the pregame signal recent-average can't contain.
+    ge = env.get((team, season, week)) if env else None
+    if ge:
+        matchup["implied_total"] = ge["implied_total"]
+        fav = ge["favored_by"]
+        line = (f"favored by {fav:.1f}" if fav > 0
+                else f"underdog by {abs(fav):.1f}" if fav < 0 else "pick'em")
+        news.append({"text": f"Game environment: {team} implied for {ge['implied_total']:.1f} "
+                             f"pts ({'home' if ge['is_home'] else 'away'} vs {ge['opponent']}, "
+                             f"game total {ge['game_total']:.1f}, {line})."})
 
     return PlayerContext(player_id=pid, name=prow["name"], position=pos,
                          season=season, week=week, history=hist,
@@ -125,6 +138,7 @@ def card(pred: LLMDebatePredictor, ctx: PlayerContext, threshold: float) -> str:
 
 
 def main() -> None:
+    load_env()
     ap = argparse.ArgumentParser()
     ap.add_argument("players", nargs="+", help="player names, quoted")
     ap.add_argument("--season", type=int, required=True)
@@ -135,8 +149,10 @@ def main() -> None:
     args = ap.parse_args()
 
     print(f"Loading data for {args.season}...")
-    weekly = load_weekly(sorted({args.season - 1, args.season}))
+    seasons = sorted({args.season - 1, args.season})
+    weekly = load_weekly(seasons)
     dvp = defense_vs_position(weekly, args.season, args.week)
+    env = game_env(load_schedule(seasons))
     pred = LLMDebatePredictor(model=args.model)
 
     print(f"\nPredictions for {args.season} week {args.week} "
@@ -146,7 +162,7 @@ def main() -> None:
         if err:
             print(f"  {query:<22} — {err}")
             continue
-        ctx = build_context(weekly, prow, dvp)
+        ctx = build_context(weekly, prow, dvp, env)
         print(card(pred, ctx, args.threshold))
         print()
 

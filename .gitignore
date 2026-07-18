@@ -2,3 +2,6 @@ __pycache__/
 .venv/
 *.png
 .llm_cache/
+.data_cache/
+.env
+records_*.csv

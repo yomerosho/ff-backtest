@@ -15,15 +15,36 @@ PlayerContext, that is the leakage bug that silently inflates accuracy.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+
+def load_env() -> None:
+    """Load a local `.env` (e.g. ANTHROPIC_API_KEY) into the environment if
+    python-dotenv is installed. Guarded so the no-key `--demo` path still runs on
+    base requirements.txt; the live paths pull in python-dotenv via
+    requirements-live.txt. A missing or empty `.env` is a silent no-op."""
+    try:
+        from dotenv import load_dotenv
+    except ModuleNotFoundError:
+        return
+    load_dotenv()
+
 
 OUTCOME_COL = "fantasy_points_ppr"
 
 _PARQUET_URL = ("https://github.com/nflverse/nflverse-data/releases/download/"
                 "stats_player/stats_player_week_{}.parquet")
+
+# On-disk cache so a run doesn't re-download (slow, and one network blip kills a
+# long backtest). A COMPLETED season never changes; to refresh an in-progress
+# season delete its file (or the whole dir). Override the location with
+# FFB_DATA_CACHE. Gitignored.
+_DATA_CACHE = Path(os.environ.get("FFB_DATA_CACHE", ".data_cache"))
 
 # Columns any predictor might use. `targets`/`receptions`/`carries` are optional
 # usage signals that the evidence packet includes when present.
@@ -42,11 +63,61 @@ def load_weekly(seasons: list[int]) -> pd.DataFrame:
     widen them and you are scoring playoff games, where a defense-vs-position
     table also only covers the teams still playing.
     """
-    frames = [pd.read_parquet(_PARQUET_URL.format(s)) for s in seasons]
-    w = pd.concat(frames, ignore_index=True)
-    keep = [c for c in WEEKLY_COLS if c in w.columns]
-    w = w[keep].rename(columns={"player_display_name": "name"})
-    return w.dropna(subset=[OUTCOME_COL]).reset_index(drop=True)
+    frames = []
+    for s in seasons:
+        cache = _DATA_CACHE / f"weekly_{s}.parquet"
+        if cache.exists():
+            frames.append(pd.read_parquet(cache))
+            continue
+        w = pd.read_parquet(_PARQUET_URL.format(s))
+        keep = [c for c in WEEKLY_COLS if c in w.columns]
+        w = w[keep].rename(columns={"player_display_name": "name"}).dropna(subset=[OUTCOME_COL])
+        _DATA_CACHE.mkdir(parents=True, exist_ok=True)
+        w.to_parquet(cache)
+        frames.append(w)
+    return pd.concat(frames, ignore_index=True).reset_index(drop=True)
+
+
+_SCHEDULE_URL = "https://github.com/nflverse/nfldata/raw/master/data/games.csv"
+
+
+def load_schedule(seasons: list[int]) -> pd.DataFrame:
+    """Game schedule with Vegas lines (`spread_line`, `total_line`). These are
+    set BEFORE kickoff, so they are leakage-safe pregame facts. nflverse
+    convention: spread_line > 0 means the HOME team is favored by that many.
+
+    Cached locally like the weekly data. The lines are static once set; delete
+    the cache to pick up newly-scheduled games for an in-progress season."""
+    cache = _DATA_CACHE / "games.parquet"
+    if cache.exists():
+        g = pd.read_parquet(cache)
+    else:
+        g = pd.read_csv(_SCHEDULE_URL)
+        _DATA_CACHE.mkdir(parents=True, exist_ok=True)
+        g.to_parquet(cache)
+    return g[g["season"].isin(seasons)].reset_index(drop=True)
+
+
+def game_env(schedule: pd.DataFrame) -> dict:
+    """Map (team, season, week) -> pregame game environment. The implied team
+    total = (game total +/- spread)/2 is the single number that captures 'how
+    good a scoring spot is this' -- exactly what recent-average can't know."""
+    out: dict = {}
+    for _, r in schedule.iterrows():
+        total, spread = r.get("total_line"), r.get("spread_line")
+        if pd.isna(total) or pd.isna(spread):
+            continue
+        season, week = int(r["season"]), int(r["week"])
+        home, away = r["home_team"], r["away_team"]
+        # spread_line > 0 => home favored by that many. favored_by is each team's
+        # own margin: positive = favored, negative = underdog.
+        out[(home, season, week)] = dict(
+            implied_total=round((total + spread) / 2.0, 1), game_total=float(total),
+            favored_by=float(spread), is_home=True, opponent=away)
+        out[(away, season, week)] = dict(
+            implied_total=round((total - spread) / 2.0, 1), game_total=float(total),
+            favored_by=float(-spread), is_home=False, opponent=home)
+    return out
 
 
 @dataclass

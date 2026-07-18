@@ -118,12 +118,22 @@ class _FileCache:
         self.dir = Path(path)
         self.dir.mkdir(parents=True, exist_ok=True)
 
+    # utf-8 explicitly: model responses routinely contain non-latin-1
+    # characters (>=, em dashes, arrows), and Path.write_text defaults to the
+    # locale codec -- cp1252 on Windows -- which raises UnicodeEncodeError on them.
     def get(self, key: str) -> Optional[str]:
         f = self.dir / f"{key}.json"
-        return f.read_text() if f.exists() else None
+        if not f.exists():
+            return None
+        try:
+            return f.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            # A corrupt or wrongly-encoded entry becomes a cache miss, not a
+            # crash mid-backtest -- the caller re-fetches and overwrites it.
+            return None
 
     def set(self, key: str, value: str) -> None:
-        (self.dir / f"{key}.json").write_text(value)
+        (self.dir / f"{key}.json").write_text(value, encoding="utf-8")
 
 
 class LLMDebatePredictor:
