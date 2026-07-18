@@ -1,13 +1,15 @@
 """Start/sit dashboard — add players, see the case for each beating his benchmark.
 
-    streamlit run dashboard.py
+    streamlit run dashboard.py          # main app file when deploying
 
-Needs ANTHROPIC_API_KEY (loaded from .env). Predictions are cached under
+Needs ANTHROPIC_API_KEY: locally from `.env`, on Streamlit Cloud from the app's
+Secrets (`ANTHROPIC_API_KEY = "sk-ant-..."`). Predictions are cached under
 .llm_cache/, so re-checking a player is instant and free.
 """
 from __future__ import annotations
 
 import datetime
+import os
 import pathlib
 
 import streamlit as st
@@ -17,6 +19,16 @@ from llm_predictor import LLMDebatePredictor
 from dashboard_core import load_bundle, build_view, latest_played_week
 
 load_env()
+
+# `.env` is gitignored, so a deployed app has none — bridge Streamlit's Secrets
+# into the environment, which is where the anthropic SDK looks for the key.
+if not os.environ.get("ANTHROPIC_API_KEY"):
+    try:
+        _key = st.secrets["ANTHROPIC_API_KEY"]
+    except Exception:
+        _key = None
+    if _key:
+        os.environ["ANTHROPIC_API_KEY"] = str(_key)
 
 
 def current_nfl_season() -> int:
@@ -55,6 +67,15 @@ def _refresh_data(season: int) -> None:
     st.cache_data.clear()
 
 st.set_page_config(page_title="Start/Sit Debate", page_icon="🏈", layout="wide")
+
+if not os.environ.get("ANTHROPIC_API_KEY"):
+    st.error(
+        "**No ANTHROPIC_API_KEY found.**\n\n"
+        "- Running locally: put it in a `.env` file at the repo root.\n"
+        "- Deployed on Streamlit Cloud: add it under **Settings → Secrets** as "
+        "`ANTHROPIC_API_KEY = \"sk-ant-...\"`."
+    )
+    st.stop()
 
 MODELS = {
     "Haiku 4.5 (fast, cheap — best in testing)": "claude-haiku-4-5-20251001",

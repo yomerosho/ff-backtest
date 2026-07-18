@@ -15,7 +15,7 @@ All files live flat in one folder. Run every command from the repo root.
 ## Quickstart — the dashboard
 
 ```bash
-pip install -r requirements-live.txt      # anthropic, pyarrow, python-dotenv, streamlit
+pip install -r requirements.txt
 cp .env.example .env                       # then paste your ANTHROPIC_API_KEY into it
 python -m streamlit run dashboard.py
 ```
@@ -107,6 +107,22 @@ Read honestly:
 
 The confidence score is a usable dial: hit-rate rises with stated confidence, so
 tighten your threshold when you can't afford a bust.
+
+## Deploying to Streamlit Cloud
+
+- **Main file path:** `dashboard.py`
+- **Branch:** whichever branch actually contains the app — check it has
+  `dashboard.py` before pointing the deploy at it.
+- **Secrets:** `.env` is gitignored and won't exist on the server. Add the key
+  under *Settings → Secrets* as `ANTHROPIC_API_KEY = "sk-ant-..."`; the app
+  bridges Streamlit Secrets into the environment for you.
+- **Dependencies** come from `requirements.txt` (the complete manifest).
+- **⚠️ A public app spends your API key.** Streamlit Community Cloud apps are
+  reachable by anyone with the URL, and every debate is a billed call on *your*
+  key. Restrict viewers (or keep the URL private) before sharing, and set a spend
+  limit in the Anthropic Console.
+- The `.data_cache/` and `.llm_cache/` directories are ephemeral on Cloud — they
+  rebuild after a restart, which costs a few extra calls but nothing breaks.
 
 ## Setup notes
 
