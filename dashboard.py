@@ -25,10 +25,11 @@ MODELS = {
 # Streamlit 1.59 exposes no overridable theme CSS variables, so switch the look
 # by injecting CSS for the chosen palette. Accent colors are shared (they read
 # fine on both backgrounds); only the surfaces/text change.
+ACCENT = "#22c55e"  # shared green; used for button hover/borders in both themes
 THEMES = {
-    "Dark":  dict(bg="#0e1117", panel="#1a1d24", border="#2a2e39",
+    "Dark":  dict(bg="#0e1117", panel="#1a1d24", btn="#262b36", border="#2a2e39",
                   text="#e6e8eb", muted="#9aa0ab"),
-    "Light": dict(bg="#ffffff", panel="#f6f8fa", border="#e2e5ea",
+    "Light": dict(bg="#ffffff", panel="#f6f8fa", btn="#ffffff", border="#d0d7de",
                   text="#1f2430", muted="#5b6270"),
 }
 
@@ -37,18 +38,33 @@ def inject_theme(t: dict) -> None:
     st.markdown(f"""<style>
       .stApp {{ background-color:{t['bg']} !important; color:{t['text']} !important; }}
       [data-testid="stHeader"] {{ background:{t['bg']} !important; }}
-      [data-testid="stSidebar"] {{ background-color:{t['panel']} !important; }}
-      [data-testid="stSidebar"] * {{ color:{t['text']} !important; }}
-      .stApp h1, .stApp h2, .stApp h3, .stApp p, .stApp li, .stApp label,
+      section[data-testid="stSidebar"] {{ background-color:{t['panel']} !important; }}
+      section[data-testid="stSidebar"] * {{ color:{t['text']} !important; }}
+      /* general text */
+      .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp p, .stApp li, .stApp label,
       [data-testid="stMarkdownContainer"], [data-testid="stMetricValue"],
       [data-testid="stMetricLabel"] {{ color:{t['text']} !important; }}
+      /* cards + expander */
       [data-testid="stVerticalBlockBorderWrapper"] {{
           background-color:{t['panel']} !important; border-color:{t['border']} !important; }}
       [data-testid="stExpander"] details {{
           background-color:{t['panel']} !important; border-color:{t['border']} !important; }}
-      .stTextInput input, .stNumberInput input {{
+      /* text inputs, number inputs, textarea */
+      .stApp input, .stApp textarea {{
           background-color:{t['bg']} !important; color:{t['text']} !important;
           border-color:{t['border']} !important; }}
+      .stApp input::placeholder, .stApp textarea::placeholder {{ color:{t['muted']} !important; }}
+      /* file-uploader dropzone */
+      [data-testid="stFileUploaderDropzone"] {{ background-color:{t['bg']} !important; }}
+      [data-testid="stFileUploaderDropzone"] * {{ color:{t['text']} !important; }}
+      /* buttons — explicit bg AND text so the label always contrasts */
+      .stApp button {{
+          background-color:{t['btn']} !important; color:{t['text']} !important;
+          border:1px solid {t['border']} !important; }}
+      .stApp button p, .stApp button span, .stApp button div {{ color:{t['text']} !important; }}
+      .stApp button:hover {{ border-color:{ACCENT} !important; }}
+      .stApp button:hover p, .stApp button:hover span {{ color:{ACCENT} !important; }}
+      /* table */
       .stApp table {{ color:{t['text']} !important; border-color:{t['border']} !important; }}
       .stApp thead th {{ color:{t['muted']} !important; }}
     </style>""", unsafe_allow_html=True)
