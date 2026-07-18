@@ -46,16 +46,30 @@ def inject_theme(t: dict) -> None:
       .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp p, .stApp li, .stApp label,
       [data-testid="stMarkdownContainer"], [data-testid="stMetricValue"],
       [data-testid="stMetricLabel"] {{ color:{t['text']} !important; }}
-      /* cards + expander */
+      /* cards + expander (both the body and the clickable header) */
       [data-testid="stVerticalBlockBorderWrapper"] {{
           background-color:{t['panel']} !important; border-color:{t['border']} !important; }}
-      [data-testid="stExpander"] details {{
-          background-color:{t['panel']} !important; border-color:{t['border']} !important; }}
-      /* text inputs, number inputs, textarea */
+      [data-testid="stExpander"] details,
+      [data-testid="stExpander"] summary {{
+          background-color:{t['panel']} !important; border-color:{t['border']} !important;
+          color:{t['text']} !important; }}
+      [data-testid="stExpander"] summary:hover {{ color:{ACCENT} !important; }}
+      /* inputs: Streamlit wraps the real <input> in themed container divs that
+         keep a light background, so theme the wrappers, not just the field */
       .stApp input, .stApp textarea {{
           background-color:{t['bg']} !important; color:{t['text']} !important;
           border-color:{t['border']} !important; }}
+      [data-testid="stTextInputRootElement"],
+      [data-testid="stTextAreaRootElement"],
+      [data-testid="stNumberInputContainer"],
+      [data-testid="stSelectbox"] div,
+      .stApp [data-baseweb="input"], .stApp [data-baseweb="base-input"],
+      .stApp [data-baseweb="textarea"], .stApp [data-baseweb="select"] > div {{
+          background-color:{t['bg']} !important; border-color:{t['border']} !important; }}
       .stApp input::placeholder, .stApp textarea::placeholder {{ color:{t['muted']} !important; }}
+      /* selectbox dropdown menu */
+      [data-baseweb="popover"] li, [data-baseweb="menu"] li, [role="option"] {{
+          background-color:{t['panel']} !important; color:{t['text']} !important; }}
       /* file-uploader dropzone */
       [data-testid="stFileUploaderDropzone"] {{ background-color:{t['bg']} !important; }}
       [data-testid="stFileUploaderDropzone"] * {{ color:{t['text']} !important; }}
