@@ -32,11 +32,7 @@ warnings.filterwarnings("ignore")
 import pandas as pd
 
 from data import OUTCOME_COL, PlayerContext, load_weekly, load_env, load_schedule, game_env
-from llm_predictor import (
-    LLMDebatePredictor,
-    build_evidence_packet,
-    _parse_json,
-)
+from llm_predictor import LLMDebatePredictor
 
 
 def defense_vs_position(weekly: pd.DataFrame, season: int, week: int) -> dict:
@@ -112,17 +108,8 @@ def build_context(weekly: pd.DataFrame, prow: pd.Series, dvp: dict,
 
 
 def card(pred: LLMDebatePredictor, ctx: PlayerContext, threshold: float) -> str:
-    v = pred.predict(ctx, threshold)
-    # recover the narrative (case for/against) from the cached raw response
-    case_for = case_against = ""
-    if pred.cache:
-        raw = pred.cache.get(pred.cache_key(build_evidence_packet(ctx, threshold)))
-        if raw:
-            try:
-                d = _parse_json(raw)
-                case_for, case_against = d.get("case_for", ""), d.get("case_against", "")
-            except Exception:
-                pass
+    v, d = pred.predict_full(ctx, threshold)
+    case_for, case_against = d.get("case_for", ""), d.get("case_against", "")
     verdict = v.verdict.upper()
     conf = f"{v.confidence*100:.0f}%"
     opp = ctx.matchup.get("opponent", "?")

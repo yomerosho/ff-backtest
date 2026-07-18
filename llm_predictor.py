@@ -186,7 +186,11 @@ class LLMDebatePredictor:
         verdict = "start" if p > 0.5 else "sit"
         return Verdict(verdict, p, median, floor, ceiling)
 
-    def predict(self, ctx: PlayerContext, start_threshold: float) -> Verdict:
+    def predict_full(self, ctx: PlayerContext, start_threshold: float):
+        """Return (Verdict, data) where data is the parsed model response —
+        case_for, case_against, p_exceed, floor/median/ceiling. The narrative is
+        what a dashboard needs to explain WHY, so expose it rather than making
+        callers re-read the cache by hand."""
         packet = build_evidence_packet(ctx, start_threshold)
         key = self.cache_key(packet)
         raw = self.cache.get(key) if self.cache else None
@@ -199,7 +203,10 @@ class LLMDebatePredictor:
         except (json.JSONDecodeError, ValueError):
             # A malformed response becomes a maximally-uncertain sit, not a crash.
             data = {"p_exceed": 0.5, "median": start_threshold}
-        return self._to_verdict(data, start_threshold)
+        return self._to_verdict(data, start_threshold), data
+
+    def predict(self, ctx: PlayerContext, start_threshold: float) -> Verdict:
+        return self.predict_full(ctx, start_threshold)[0]
 
 
 def fit_calibrator(records, n_bins: int = 10) -> Callable[[float], float]:
