@@ -18,8 +18,10 @@ load_env()
 st.set_page_config(page_title="Start/Sit Debate", page_icon="🏈", layout="wide")
 
 MODELS = {
-    "Haiku (fast, cheap — best in testing)": "claude-haiku-4-5-20251001",
-    "Sonnet (stronger, slower)": "claude-sonnet-5",
+    "Haiku 4.5 (fast, cheap — best in testing)": "claude-haiku-4-5-20251001",
+    "Sonnet 5 (balanced)": "claude-sonnet-5",
+    "Opus 4.8 (most capable)": "claude-opus-4-8",
+    "Fable 5 (newest)": "claude-fable-5",
 }
 
 # Streamlit 1.59 exposes no overridable theme CSS variables, so switch the look
@@ -81,7 +83,7 @@ with st.sidebar:
     week = st.number_input("Week", min_value=1, max_value=22, value=10, step=1)
     threshold = st.slider("Startable threshold (PPR pts)", 6.0, 24.0, 12.0, 0.5,
                           help="A week at or above this counts as a 'hit'.")
-    model_label = st.radio("Model", list(MODELS), index=0)
+    model_label = st.selectbox("Model", list(MODELS), index=0)
     model = MODELS[model_label]
     st.caption("Data: nflverse weekly stats + Vegas lines. Only games *before* "
                "the selected week are used — no leakage.")
@@ -159,11 +161,6 @@ with st.expander("Add several at once (paste a list or upload a file)"):
 if not st.session_state.players:
     st.info("Add a player above to get started.")
     st.stop()
-
-if len(st.session_state.players) > 1:
-    if st.button(f"Clear all ({len(st.session_state.players)})"):
-        st.session_state.players = []
-        st.rerun()
 
 
 # ---- data + predictor (cached) ---------------------------------------------
@@ -250,14 +247,54 @@ def render(v):
                       for g in v.recent_games])
 
 
-for name in list(st.session_state.players):
+# ---- run debates on demand (not on every rerun) ----------------------------
+# Views are cached in session_state keyed by (player, season, week, threshold,
+# model), so adding players or toggling the theme does NOT fire API calls —
+# debates run only when Refresh is pressed. Changing any setting makes the keys
+# miss, so those players show as pending until the next run.
+views = st.session_state.setdefault("views", {})
+
+
+def view_key(name: str) -> tuple:
+    return (name.lower(), int(season), int(week), float(threshold), model)
+
+
+players = st.session_state.players
+pending = [n for n in players if view_key(n) not in views]
+
+c_run, c_clear = st.columns([3, 1])
+run = c_run.button(
+    f"🔄 Run debates ({len(pending)} pending)" if pending else "🔄 Refresh debates",
+    type="primary", use_container_width=True,
+    help="Runs the debate for each player at the current settings. Cached after "
+         "the first run; changing model/week/threshold requires a refresh.")
+if c_clear.button(f"Clear all ({len(players)})", use_container_width=True):
+    st.session_state.players = []
+    st.rerun()
+
+if run:
+    todo = pending or players            # nothing pending -> force a full refresh
+    prog = st.progress(0.0, text="Running debates…")
+    for i, n in enumerate(todo):
+        prog.progress(i / len(todo), text=f"Debating {n} ({i+1}/{len(todo)})…")
+        views[view_key(n)] = build_view(weekly, env, pred, n, int(season),
+                                        int(week), float(threshold))
+    prog.empty()
+    pending = [n for n in players if view_key(n) not in views]
+
+if pending:
+    st.info(f"{len(pending)} player(s) awaiting a run at these settings — "
+            f"hit **Run debates** above.")
+
+for name in list(players):
     with st.container(border=True):
         top = st.columns([12, 1])
         with top[0]:
-            with st.spinner(f"Running the debate for {name}…"):
-                view = build_view(weekly, env, pred, name, int(season),
-                                  int(week), float(threshold))
-            render(view)
+            v = views.get(view_key(name))
+            if v is not None:
+                render(v)
+            else:
+                st.markdown(f"**{name}** — _pending; hit Run debates._")
         if top[1].button("✕", key=f"rm_{name}", help="Remove"):
             st.session_state.players.remove(name)
             st.rerun()
