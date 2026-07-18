@@ -58,6 +58,11 @@ floor-to-ceiling range WIDE enough to reflect real week-to-week variance — a
 narrow band around the median is almost always wrong. For a high-target WR or a
 featured RB, the ceiling should be roughly twice the floor.
 
+Injury designations are decisive when present. OUT means the player will not play
+— project ~0 and p_exceed near 0. DOUBTFUL means very likely inactive — treat him
+as a probable zero. QUESTIONABLE means genuinely uncertain — widen the floor and
+shade the projection down, more so if he did not practice fully.
+
 Calibration matters. p_exceed = 0.7 means that across many similar spots the
 player clears the bar about 7 times in 10. Do not default to 0 or 1 — reflect
 genuine uncertainty, and when the evidence is thin, stay near the base rate."""

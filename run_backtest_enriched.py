@@ -74,10 +74,11 @@ def _select_active(weekly, season, wk, positions, limit, per_position):
 
 
 def collect(system, baseline, weekly, season, weeks, threshold, positions, limit,
-            min_history=3, env=None, per_position=None):
+            min_history=3, env=None, per_position=None, injuries=None):
     """One pass over the season; builds enriched context per player-week and
     scores both predictors against the true outcome. `env` is an optional
-    (team, season, week) -> game-environment map from `data.game_env`.
+    (team, season, week) -> game-environment map from `data.game_env`; `injuries`
+    an optional (player_id, season, week) -> report map from `data.injury_map`.
     `per_position` (e.g. {"WR":12,"RB":12,...}) selects a balanced, startable
     eval set instead of the arbitrary head(limit)."""
     sys_recs, base_recs = [], []
@@ -85,7 +86,7 @@ def collect(system, baseline, weekly, season, weeks, threshold, positions, limit
         dvp = defense_vs_position(weekly, season, wk)
         active = _select_active(weekly, season, wk, positions, limit, per_position)
         for _, prow in active.iterrows():
-            ctx = build_context(weekly, prow, dvp, env)
+            ctx = build_context(weekly, prow, dvp, env, injuries)
             if len(ctx.history) < min_history:
                 continue
             actual = float(prow[OUTCOME_COL])

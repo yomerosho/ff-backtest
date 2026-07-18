@@ -14,7 +14,8 @@ import argparse
 import csv
 import os
 
-from data import load_weekly, load_env, load_schedule, game_env
+from data import (load_weekly, load_env, load_schedule, game_env,
+                  load_injuries, injury_map)
 from backtest import BaselinePredictor
 from llm_predictor import LLMDebatePredictor, fit_calibrator
 from run_backtest_enriched import collect
@@ -129,6 +130,8 @@ def main() -> None:
     ap.add_argument("--balanced", action="store_true",
                     help="evaluate a position-balanced, startable set (top-K/pos by form) "
                          "instead of head(limit) -- fixes RB under-sampling")
+    ap.add_argument("--injuries", action="store_true",
+                    help="add each player's pregame injury designation to the packet")
     args = ap.parse_args()
 
     # startable-pool sizes per week when --balanced; mirrors real roster depth
@@ -146,14 +149,20 @@ def main() -> None:
         env = game_env(load_schedule(seasons))
         print(f"[vegas] game environment loaded for {len(env)} team-weeks")
 
+    injuries = None
+    if args.injuries:
+        injuries = injury_map(load_injuries(seasons))
+        print(f"[injuries] {len(injuries)} player-week designations loaded")
+
     system = LLMDebatePredictor(model=args.model)
     baseline = BaselinePredictor()
     weeks = range(args.weeks[0], args.weeks[1] + 1)
     print(f"[experiment] model={args.model}  weeks={args.weeks}  limit={args.limit}  "
-          f"vegas={args.vegas}  balanced={args.balanced}")
+          f"vegas={args.vegas}  injuries={args.injuries}  balanced={args.balanced}")
 
     sys_recs, base_recs = collect(system, baseline, weekly, args.test_season, weeks,
                                   args.threshold, POSITIONS, args.limit, env=env,
+                                  injuries=injuries,
                                   per_position=per_position)
 
     out = f"records_{args.tag}_{args.test_season}.csv"

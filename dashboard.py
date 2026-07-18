@@ -144,7 +144,7 @@ with st.sidebar:
                                         min_value=0, max_value=22, value=0, step=1)
 
     try:
-        weekly, env = _bundle(int(season))
+        weekly, env, injuries = _bundle(int(season))
     except Exception as e:
         st.error(f"No data available for {int(season)} yet ({e}).")
         st.stop()
@@ -289,6 +289,13 @@ def render(v):
         f"{verdict}</div><div style='text-align:right;opacity:.7;'>"
         f"{v.confidence*100:.0f}% confidence</div>", unsafe_allow_html=True)
 
+    if v.injury_status:
+        ic = {"Out": "#ef4444", "Doubtful": "#f97316"}.get(v.injury_status, "#eab308")
+        st.markdown(
+            f"<div style='background:{ic}22;border-left:3px solid {ic};padding:.4rem .7rem;"
+            f"border-radius:4px;margin:.2rem 0;'>🩹 <b>{v.injury_note[14:].strip() or v.injury_status}</b>"
+            f"</div>", unsafe_allow_html=True)
+
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Projection", f"{v.proj_median:.1f}")
     m2.metric("Benchmark", f"{v.benchmark:.1f}", help="Recent 4-game average")
@@ -312,6 +319,8 @@ def render(v):
         st.markdown(f"⚠️ **Risk:** {v.case_against}")
 
     with st.expander("Evidence the debate saw"):
+        if v.injury_note:
+            st.markdown(f"- {v.injury_note}")
         if v.matchup_note:
             st.markdown(f"- {v.matchup_note}")
         if v.game_note:
@@ -352,7 +361,7 @@ if run:
     prog = st.progress(0.0, text="Running debates…")
     for i, n in enumerate(todo):
         prog.progress(i / len(todo), text=f"Debating {n} ({i+1}/{len(todo)})…")
-        views[view_key(n)] = build_view(weekly, env, pred, n, int(season),
+        views[view_key(n)] = build_view(weekly, env, injuries, pred, n, int(season),
                                         int(week), float(threshold))
     prog.empty()
     pending = [n for n in players if view_key(n) not in views]

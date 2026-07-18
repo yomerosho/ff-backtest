@@ -18,7 +18,8 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
-from data import OUTCOME_COL, PlayerContext, load_weekly, load_schedule, game_env
+from data import (OUTCOME_COL, PlayerContext, load_weekly, load_schedule,
+                  game_env, load_injuries, injury_map)
 from predict_roster import defense_vs_position, matchup_and_news
 from llm_predictor import LLMDebatePredictor
 
@@ -43,6 +44,8 @@ class PlayerView:
     recent_games: list[dict] = field(default_factory=list)   # [{week, points, ...}]
     matchup_note: str = ""
     game_note: str = ""
+    injury_note: str = ""        # e.g. "Injury report: Questionable (Hamstring)…"
+    injury_status: str = ""      # "Out" | "Doubtful" | "Questionable" | ""
     upcoming: bool = False       # target week not yet played (opponent from schedule)
     error: str = ""
 
@@ -66,11 +69,13 @@ def seasons_for(season: int) -> list[int]:
 
 
 def load_bundle(season: int):
-    """Weekly frame + game-environment map for a season (and its predecessor)."""
+    """Weekly frame + game-environment map + injury map for a season (and its
+    predecessor)."""
     seasons = seasons_for(season)
     weekly = load_weekly(seasons)
     env = game_env(load_schedule(seasons))
-    return weekly, env
+    injuries = injury_map(load_injuries(seasons))
+    return weekly, env, injuries
 
 
 def latest_played_week(weekly: pd.DataFrame, season: int) -> int:
@@ -86,8 +91,9 @@ def _err(query, season, week, threshold, msg) -> PlayerView:
                       case_for="", case_against="", error=msg)
 
 
-def build_view(weekly: pd.DataFrame, env: dict, pred: LLMDebatePredictor,
-               query: str, season: int, week: int, threshold: float) -> PlayerView:
+def build_view(weekly: pd.DataFrame, env: dict, injuries: dict,
+               pred: LLMDebatePredictor, query: str, season: int, week: int,
+               threshold: float) -> PlayerView:
     season, week = int(season), int(week)
 
     # --- resolve the player's identity across ALL data (not just target week) --
@@ -128,7 +134,9 @@ def build_view(weekly: pd.DataFrame, env: dict, pred: LLMDebatePredictor,
                     f"no games on record for {name} before {season} Week {week}.")
 
     dvp = defense_vs_position(weekly, season, week)
-    matchup, news = matchup_and_news(hist, team, opponent, position, dvp, env, season, week)
+    injury = injuries.get((pid, season, week)) if injuries else None
+    matchup, news = matchup_and_news(hist, team, opponent, position, dvp, env,
+                                     season, week, injury)
     ctx = PlayerContext(player_id=pid, name=name, position=position, season=season,
                         week=week, history=hist, matchup=matchup, news=news)
     v, data = pred.predict_full(ctx, threshold)
@@ -148,5 +156,7 @@ def build_view(weekly: pd.DataFrame, env: dict, pred: LLMDebatePredictor,
         recent_games=recent_games,
         matchup_note=next((t for t in notes if t.startswith("Matchup")), ""),
         game_note=next((t for t in notes if t.startswith("Game environment")), ""),
+        injury_note=next((t for t in notes if t.startswith("Injury report")), ""),
+        injury_status=matchup.get("injury_status", ""),
         upcoming=upcoming,
     )
