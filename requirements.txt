@@ -1,5 +1,5 @@
-# Complete manifest — Streamlit Cloud installs from this file, so everything the
-# dashboard needs must be here.
+# Complete manifest - Streamlit Cloud installs from this file, so everything the
+# dashboard needs must be listed here.
 pandas>=2.0
 numpy>=1.24
 pyarrow>=14
