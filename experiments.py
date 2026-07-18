@@ -32,14 +32,18 @@ def _fmt(x: float) -> str:
 
 
 def save_csv(records, path: str) -> None:
+    """floor/ceiling are saved so interval COVERAGE can be checked after the
+    fact: they're meant to be ~10th/90th percentiles, so ~10% of actuals should
+    land below the floor and ~10% above the ceiling."""
     with open(path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["player_id", "name", "position", "season", "week", "verdict",
-                    "confidence", "proj_median", "actual_points", "baseline_proj",
-                    "start_threshold", "hit"])
+                    "confidence", "proj_floor", "proj_median", "proj_ceiling",
+                    "actual_points", "baseline_proj", "start_threshold", "hit"])
         for r in records:
             w.writerow([r.player_id, r.name, r.position, r.season, r.week, r.verdict,
-                        f"{r.confidence:.4f}", f"{r.proj_median:.2f}",
+                        f"{r.confidence:.4f}", f"{r.proj_floor:.2f}",
+                        f"{r.proj_median:.2f}", f"{r.proj_ceiling:.2f}",
                         f"{r.actual_points:.2f}", f"{r.baseline_proj:.2f}",
                         r.start_threshold, int(r.hit)])
 

@@ -108,6 +108,24 @@ Read honestly:
 The confidence score is a usable dial: hit-rate rises with stated confidence, so
 tighten your threshold when you can't afford a bust.
 
+### The floor is optimistic — measured
+
+floor/ceiling are meant to be ~10th/90th percentiles. Measured over the same 504
+player-weeks:
+
+| | measured | target |
+|---|---|---|
+| below floor | **13.3%** | 10% |
+| inside range | 76.6% | 80% |
+| above ceiling | 10.1% | 10% |
+
+The ceiling is well calibrated; the **floor is not** — it's breached a third more
+often than it claims, consistent with the system's slight over-projection. Treated
+as "he scores at least this," the floor held **86.7%** of the time, not 90%. Tight
+ends are worst (17.9% below floor). And when the floor breaks the median miss is
+only 2.2 pts, so outcomes cluster right at the line — the margin is thin exactly
+where you'd lean on it. Don't read the floor as a bound.
+
 ## Deploying to Streamlit Cloud
 
 - **Main file path:** `dashboard.py`
