@@ -78,17 +78,76 @@ st.markdown("Add players to see whether the debate expects them to **beat their 
 if "players" not in st.session_state:
     st.session_state.players = ["Justin Jefferson", "Bijan Robinson"]
 
+
+# header words and position/roster codes to ignore, so a two-column CSV like
+# "Justin Jefferson,WR" contributes the name but not a bogus "WR" player.
+_SKIP_TOKENS = {"player", "name", "players", "position", "pos", "team",
+                "qb", "rb", "wr", "te", "k", "dst", "def", "flex"}
+
+
+def parse_names(text: str) -> list[str]:
+    """Names one-per-line or comma-separated (so a plain .txt, a single-column
+    .csv, or a name,position .csv all work). Strips whitespace and surrounding
+    quotes, drops header/position tokens, and de-dupes while preserving order."""
+    names, seen = [], set()
+    for line in (text or "").splitlines():
+        for part in line.split(","):
+            name = part.strip().strip('"').strip("'")
+            low = name.lower()
+            if not name or low in _SKIP_TOKENS:
+                continue
+            if low not in seen:
+                seen.add(low)
+                names.append(name)
+    return names
+
+
+def add_players(names: list[str]) -> int:
+    existing = {p.lower() for p in st.session_state.players}
+    added = 0
+    for n in names:
+        if n.lower() not in existing:
+            st.session_state.players.append(n)
+            existing.add(n.lower())
+            added += 1
+    return added
+
+
 with st.form("add", clear_on_submit=True):
     c1, c2 = st.columns([4, 1])
     new = c1.text_input("Add a player", placeholder="e.g. Ja'Marr Chase",
                         label_visibility="collapsed")
     if c2.form_submit_button("Add", use_container_width=True) and new.strip():
-        if new.strip() not in st.session_state.players:
-            st.session_state.players.append(new.strip())
+        add_players([new.strip()])
+
+with st.expander("Add several at once (paste a list or upload a file)"):
+    with st.form("add_many", clear_on_submit=True):
+        pasted = st.text_area(
+            "Paste names — one per line, or comma-separated",
+            placeholder="Justin Jefferson\nBijan Robinson\nJa'Marr Chase",
+            height=120)
+        uploaded = st.file_uploader("…or upload a .txt / .csv", type=["txt", "csv"])
+        if st.form_submit_button("Add all"):
+            text = pasted or ""
+            if uploaded is not None:
+                text += "\n" + uploaded.getvalue().decode("utf-8", errors="ignore")
+            names = parse_names(text)
+            n = add_players(names)
+            if n:
+                st.success(f"Added {n} player{'s' if n != 1 else ''}.")
+            else:
+                st.info("No new players found in that list.")
+    st.caption("Each player runs one debate call (cached after the first). "
+               "A large list is fine but the first run will take a moment.")
 
 if not st.session_state.players:
     st.info("Add a player above to get started.")
     st.stop()
+
+if len(st.session_state.players) > 1:
+    if st.button(f"Clear all ({len(st.session_state.players)})"):
+        st.session_state.players = []
+        st.rerun()
 
 
 # ---- data + predictor (cached) ---------------------------------------------
