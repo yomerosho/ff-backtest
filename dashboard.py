@@ -7,13 +7,33 @@ Needs ANTHROPIC_API_KEY (loaded from .env). Predictions are cached under
 """
 from __future__ import annotations
 
+import pathlib
+
 import streamlit as st
 
 from data import load_env
 from llm_predictor import LLMDebatePredictor
-from dashboard_core import load_bundle, build_view
+from dashboard_core import load_bundle, build_view, latest_played_week
 
 load_env()
+
+
+@st.cache_data(show_spinner="Loading season data…")
+def _bundle(season: int):
+    return load_bundle(season)
+
+
+def _refresh_data(season: int) -> None:
+    """Drop cached data so the next load re-fetches fresh stats + Vegas lines —
+    needed weekly during a live season. Removes this season's weekly file and the
+    schedule, then clears Streamlit's in-memory cache."""
+    for f in (pathlib.Path(".data_cache") / f"weekly_{season}.parquet",
+              pathlib.Path(".data_cache") / "games.parquet"):
+        try:
+            f.unlink()
+        except FileNotFoundError:
+            pass
+    st.cache_data.clear()
 
 st.set_page_config(page_title="Start/Sit Debate", page_icon="🏈", layout="wide")
 
@@ -93,12 +113,36 @@ with st.sidebar:
     theme = THEMES[theme_name]
     inject_theme(theme)
     st.divider()
-    season = st.number_input("Season", min_value=2015, max_value=2025, value=2024, step=1)
-    week = st.number_input("Week", min_value=1, max_value=22, value=10, step=1)
+    season = st.number_input("Season", min_value=2015, max_value=2026, value=2025, step=1)
+
+    # Load now so we can default Week to the next unplayed one (live use).
+    try:
+        weekly, env = _bundle(int(season))
+    except Exception as e:
+        st.error(f"No data available for {int(season)} yet ({e}).")
+        st.stop()
+    lpw = latest_played_week(weekly, int(season))
+    if lpw == 0:                       # season not started -> Week 1 (upcoming)
+        suggested_week = 1
+    elif lpw <= 17:                    # in progress -> the next week to predict
+        suggested_week = lpw + 1
+    else:                              # finished season -> a normal backtest week
+        suggested_week = 10
+    week = st.number_input("Week", min_value=1, max_value=22, value=suggested_week, step=1)
+    if int(week) > lpw:
+        note = "season hasn't started" if lpw == 0 else f"latest played: Week {lpw}"
+        st.caption(f"🟢 Week {int(week)} is **upcoming** ({note}) — opponents come "
+                   f"from the schedule.")
+
     threshold = st.slider("Startable threshold (PPR pts)", 6.0, 24.0, 12.0, 0.5,
                           help="A week at or above this counts as a 'hit'.")
     model_label = st.selectbox("Model", list(MODELS), index=0)
     model = MODELS[model_label]
+    if st.button("🔄 Refresh data", use_container_width=True,
+                 help="Re-download this season's stats and the latest Vegas lines. "
+                      "Use it each week during the live season."):
+        _refresh_data(int(season))
+        st.rerun()
     st.caption("Data: nflverse weekly stats + Vegas lines. Only games *before* "
                "the selected week are used — no leakage.")
 
@@ -177,13 +221,7 @@ if not st.session_state.players:
     st.stop()
 
 
-# ---- data + predictor (cached) ---------------------------------------------
-@st.cache_data(show_spinner="Loading season data…")
-def _bundle(season: int):
-    return load_bundle(season)
-
-
-weekly, env = _bundle(int(season))
+# weekly + env were loaded in the sidebar (to auto-detect the upcoming week)
 pred = LLMDebatePredictor(model=model)
 
 
@@ -222,7 +260,8 @@ def render(v):
     verdict = v.verdict.upper()
     color = "#16a34a" if v.verdict == "start" else "#6b7280"
     head, badge = st.columns([3, 1])
-    head.subheader(f"{v.name}  ·  {v.position} — {v.team} vs {v.opponent}")
+    tag = "  ·  🟢 upcoming" if v.upcoming else ""
+    head.subheader(f"{v.name}  ·  {v.position} — {v.team} vs {v.opponent}{tag}")
     badge.markdown(
         f"<div style='text-align:right;font-size:1.4rem;font-weight:700;color:{color};'>"
         f"{verdict}</div><div style='text-align:right;opacity:.7;'>"

@@ -69,12 +69,20 @@ def load_weekly(seasons: list[int]) -> pd.DataFrame:
         if cache.exists():
             frames.append(pd.read_parquet(cache))
             continue
-        w = pd.read_parquet(_PARQUET_URL.format(s))
+        try:
+            w = pd.read_parquet(_PARQUET_URL.format(s))
+        except Exception:
+            # A not-yet-published season (e.g. an upcoming year before Week 1, or
+            # the current week before its games post) has no parquet yet. Skip it
+            # and use whatever prior seasons loaded -- do NOT cache the miss.
+            continue
         keep = [c for c in WEEKLY_COLS if c in w.columns]
         w = w[keep].rename(columns={"player_display_name": "name"}).dropna(subset=[OUTCOME_COL])
         _DATA_CACHE.mkdir(parents=True, exist_ok=True)
         w.to_parquet(cache)
         frames.append(w)
+    if not frames:
+        raise RuntimeError(f"no weekly data available for any of {seasons}")
     return pd.concat(frames, ignore_index=True).reset_index(drop=True)
 
 
@@ -104,19 +112,28 @@ def game_env(schedule: pd.DataFrame) -> dict:
     good a scoring spot is this' -- exactly what recent-average can't know."""
     out: dict = {}
     for _, r in schedule.iterrows():
-        total, spread = r.get("total_line"), r.get("spread_line")
-        if pd.isna(total) or pd.isna(spread):
-            continue
         season, week = int(r["season"]), int(r["week"])
         home, away = r["home_team"], r["away_team"]
+        total, spread = r.get("total_line"), r.get("spread_line")
+        # Opponent/home are known as soon as the game is scheduled; the Vegas
+        # fields stay None until the lines are posted (they arrive days before
+        # kickoff). This lets an UPCOMING week resolve matchups before its lines
+        # exist -- the whole point of live use.
+        if pd.isna(total) or pd.isna(spread):
+            out[(home, season, week)] = dict(implied_total=None, game_total=None,
+                                             favored_by=None, is_home=True, opponent=away)
+            out[(away, season, week)] = dict(implied_total=None, game_total=None,
+                                             favored_by=None, is_home=False, opponent=home)
+            continue
+        total, spread = float(total), float(spread)
         # spread_line > 0 => home favored by that many. favored_by is each team's
         # own margin: positive = favored, negative = underdog.
         out[(home, season, week)] = dict(
-            implied_total=round((total + spread) / 2.0, 1), game_total=float(total),
-            favored_by=float(spread), is_home=True, opponent=away)
+            implied_total=round((total + spread) / 2.0, 1), game_total=total,
+            favored_by=spread, is_home=True, opponent=away)
         out[(away, season, week)] = dict(
-            implied_total=round((total - spread) / 2.0, 1), game_total=float(total),
-            favored_by=float(-spread), is_home=False, opponent=home)
+            implied_total=round((total - spread) / 2.0, 1), game_total=total,
+            favored_by=-spread, is_home=False, opponent=home)
     return out
 
 
