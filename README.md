@@ -85,6 +85,14 @@ Backtest on 2024, 504 balanced player-weeks, Haiku, vs a recent-average baseline
 
 Read honestly:
 
+- **The backtest understates the injury signal.** It can only grade players who
+  *played*, so anyone ruled **Out** has no stat line and is excluded — of 504 eval
+  rows only 22 carried a designation, all "Questionable." The biggest live win
+  (benching an Out player) is structurally invisible here. On the Questionable
+  rows it can see, injuries lifted directional accuracy 0.59 → 0.64. Live, the
+  effect is far larger: Christian McCaffrey, Out in 2024 Week 2 on a 25.5
+  recent-4 average, goes from START (conf .78, proj 18.2) to SIT (conf .02,
+  proj 0.0) once the designation is in the packet.
 - **On start/sit *direction* it's about even with recent-average** for clearly
   startable players — they mostly agree, so don't expect it to flip obvious calls.
 - **It wins on projection quality.** Recent-average systematically *over-projects*

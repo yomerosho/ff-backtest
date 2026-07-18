@@ -39,9 +39,17 @@ season's team (offseason moves not reflected) and thin evidence.
 
 Start/sit *direction* ≈ recent-average baseline (~0.70). Real wins are projection
 MAE (6.8 vs 7.15) and bias (+0.2 vs +1.6 — recent-average over-projects in-form
-players). Vegas mainly improves calibration (held-out ECE 0.058). A stronger model
-did NOT help — bottleneck is evidence, not reasoning. Edge is largest on borderline
-players. Injuries are the next unbuilt signal.
+players). Vegas + injuries give the best calibration (ECE 0.055) and hit-rate on
+starts (0.712). A stronger model did NOT help — bottleneck is evidence, not
+reasoning. Edge is largest on borderline players.
+
+**Survivorship blind spot — read every backtest number with this in mind.** The
+eval only contains players who PLAYED (they need a stat line to grade against), so
+anyone ruled Out is silently excluded. Of 504 rows only 22 had an injury
+designation and all were "Questionable" — the feature's biggest live win (benching
+an Out player) is unmeasurable here and the aggregate numbers understate it.
+Don't "fix" this by scoring Out players as 0; that invents outcomes. Judge injury
+work by live behavior (e.g. McCaffrey Out wk2: START .78/18.2 → SIT .02/0.0).
 
 ## The prime directive: no leakage
 
